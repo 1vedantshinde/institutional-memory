@@ -1,0 +1,2 @@
+"""Generic graph store operations."""
+
