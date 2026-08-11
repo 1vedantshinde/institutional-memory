@@ -175,8 +175,37 @@ def run_test():
         print(f"  * [{citation['modality']}] {citation['source_path']}, Chunk {citation['chunk_index']}")
         print(f"    Snippet: \"{citation['snippet']}\"")
 
+    print_separator("6. KNOWLEDGE GRAPH WRITER OPERATIONS (STEP 6)")
+    from knowledge.graph_store import write_entity, write_relation, link_chunk_to_entities, neo4j
+    from core.schema import Chunk
+    
+    class ExtractedEntity:
+        def __init__(self, id, name, type, attrs):
+            self.id = id
+            self.name = name
+            self.type = type
+            self.attrs = attrs
+
+    e1 = ExtractedEntity("e1", "Compressor-202", "Equipment", {"status": "Operational"})
+    e2 = ExtractedEntity("e2", "SOP-110", "Procedure", {"safety_level": "Critical"})
+    
+    print("Writing entity nodes...")
+    write_entity(e1)
+    write_entity(e2)
+    
+    print("\nWriting relationships...")
+    write_relation(e1, e2, "MAINTAINED_BY")
+    
+    print("\nLinking chunk to entities...")
+    mock_chunk = Chunk(
+        chunk_id="chunk_999",
+        doc_id="doc_999",
+        text="Compressor-202 should follow SOP-110 safety procedures."
+    )
+    link_chunk_to_entities(mock_chunk, [e1, e2])
+
     print("\n" + "=" * 60)
-    print(" ALL STEP 2 & 3 TESTS COMPLETED SUCCESSFULLY! ")
+    print(" ALL STEP 2 - 6 TESTS COMPLETED SUCCESSFULLY! ")
     print("=" * 60)
 
 if __name__ == "__main__":
