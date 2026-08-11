@@ -50,7 +50,7 @@ class RAGOrchestrator:
         for chunk in chunks:
             citations.append({
                 "doc_id": chunk.doc_id,
-                "chunk_index": chunk.metadata.get("index", 0),
+                "chunk_index": chunk.metadata.get("chunk_index", 0),
                 "source_path": chunk.metadata.get("source_path", "Unknown"),
                 "modality": chunk.metadata.get("modality", "Unknown"),
                 "snippet": chunk.text[:150] + "..." if len(chunk.text) > 150 else chunk.text

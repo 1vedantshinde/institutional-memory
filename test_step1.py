@@ -93,6 +93,18 @@ def run_test():
     )
     print(f"--> Formatted chunk preview: '{email_chunks[0].text}'\n")
 
+    # D. Python Code Ingestion (Strategy Override Test)
+    code_bytes = b"def calculate_total():\n    return sum(items)\n\ndef format_output(val):\n    return str(val)"
+    print("Ingesting Python Code (custom chunk strategy override)...")
+    code_chunks = pipeline.ingest_file(
+        filename="utils.py",
+        content_bytes=code_bytes
+    )
+    print(f"Generated Chunks: {len(code_chunks)}")
+    for j, c in enumerate(code_chunks):
+        print(f"  * Chunk {j}: '{c.text}' (strategy: {c.metadata.get('strategy')})")
+    print()
+
     print_separator("4. DYNAMIC ONTOLOGY SCHEMA VALIDATION")
     
     # Prepare valid graph instances complying with configured types

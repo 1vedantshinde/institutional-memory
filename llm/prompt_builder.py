@@ -22,7 +22,7 @@ def build_user_prompt(query: str, context_chunks: List[Chunk]) -> str:
     for chunk in context_chunks:
         source_name = chunk.metadata.get("source_path", "Unknown Source")
         doc_type = chunk.metadata.get("modality", "Unknown Format")
-        chunk_index = chunk.metadata.get("index", 0)
+        chunk_index = chunk.metadata.get("chunk_index", 0)
         passage = (
             f"[Source: {source_name} ({doc_type}), Chunk {chunk_index}]\n"
             f"{chunk.text.strip()}"
