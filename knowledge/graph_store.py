@@ -31,6 +31,19 @@ class Neo4jSimulationDriver:
         })
         print(f"[Neo4j] MERGE ({source_id}) -[:{type}]-> ({target_id})")
 
+    def get_neighbors(self, entity_name: str) -> List[str]:
+        """Query 1-hop connected Neo4j relationships for retrieval context."""
+        neighbors = []
+        for edge in self.edges:
+            src = edge["source_id"]
+            tgt = edge["target_id"]
+            rel = edge["type"]
+            if src == entity_name:
+                neighbors.append(f"{entity_name} -[:{rel}]-> {tgt}")
+            elif tgt == entity_name:
+                neighbors.append(f"{src} -[:{rel}]-> {entity_name}")
+        return neighbors
+
 # Global driver instance
 neo4j = Neo4jSimulationDriver()
 

@@ -28,16 +28,22 @@ def get_deterministic_vector(text: str, dimension: int = 1536) -> List[float]:
         return [0.0] * dimension
     return [x / magnitude for x in vec]
 
-# Try lazy loading SentenceTransformer if package exists
-try:
-    from sentence_transformers import SentenceTransformer
-    _model_cache = {}
-    def get_sentence_transformer_embedding(text: str, model_name: str = "all-MiniLM-L6-v2") -> List[float]:
-        if model_name not in _model_cache:
-            _model_cache[model_name] = SentenceTransformer(model_name)
-        return _model_cache[model_name].encode(text).tolist()
-except ImportError:
-    get_sentence_transformer_embedding = None
+# Try lazy loading SentenceTransformer if package exists and explicitly enabled
+get_sentence_transformer_embedding = None
+import os
+if os.environ.get("USE_NEURAL_MODELS") == "1":
+    try:
+        os.environ["HF_HUB_OFFLINE"] = "1"
+        os.environ["TRANSFORMERS_OFFLINE"] = "1"
+        from sentence_transformers import SentenceTransformer
+        _model_cache = {}
+        def _get_emb(text: str, model_name: str = "all-MiniLM-L6-v2") -> List[float]:
+            if model_name not in _model_cache:
+                _model_cache[model_name] = SentenceTransformer(model_name, local_files_only=True)
+            return _model_cache[model_name].encode(text).tolist()
+        get_sentence_transformer_embedding = _get_emb
+    except (ImportError, Exception):
+        get_sentence_transformer_embedding = None
 
 @register_embedder("default")
 @register_embedder("sentence_transformer")

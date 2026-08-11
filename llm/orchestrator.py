@@ -35,8 +35,23 @@ class RAGOrchestrator:
         # 1. Generate query embedding
         query_vector = self.embedder.embed_query(user_query)
         
-        # 2. Retrieve matched passages
-        chunks: List[Chunk] = self.vector_store.similarity_search(query_vector, k=limit, filters=filters)
+        # 2. Retrieve matched passages (hybrid retrieval + graph augmentation)
+        from retrieval.retriever import hybrid_retrieve, graph_augment
+        retrieved_chunks = hybrid_retrieve(user_query, top_k=limit)
+        
+        if filters:
+            filtered_chunks = []
+            for chunk in retrieved_chunks:
+                matching = True
+                for fk, fval in filters.items():
+                    if chunk.metadata.get(fk) != fval:
+                        matching = False
+                        break
+                if matching:
+                    filtered_chunks.append(chunk)
+            retrieved_chunks = filtered_chunks
+            
+        chunks = graph_augment(user_query, retrieved_chunks)
         
         # 3. Assemble domain prompt templates
         system_prompt = build_system_prompt()
