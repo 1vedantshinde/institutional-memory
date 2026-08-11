@@ -1,0 +1,31 @@
+# config/domain.yaml
+domain_name: "Generic Industrial Plant"          # swap to "Pharma Manufacturing", "Oil & Gas", etc.
+
+entity_types:
+  - Equipment
+  - Procedure
+  - RegulatoryClause
+  - Person
+  - Incident
+  - Parameter
+  # add/remove per industry — nothing in code changes
+
+relation_types:
+  - MAINTAINED_BY
+  - PART_OF
+  - MENTIONED_IN
+  - CAUSED_BY
+  - SUPERSEDES
+
+glossary:                                          # domain jargon, helps NER + prompting
+  - term: "P&ID"
+    meaning: "Piping and Instrumentation Diagram"
+  - term: "OT"
+    meaning: "Operational Technology"
+  - term: "SOP"
+    meaning: "Standard Operating Procedure"
+
+system_prompt_template: |
+  You are a knowledge assistant for {domain_name}.
+  Answer only using the provided context. Cite sources for every claim.
+  If the context is insufficient, say so — never invent information.
