@@ -8,7 +8,7 @@ import sys
 import traceback
 from core.config import load_domain_config, DOMAIN
 from core.schema import Node, Edge, UnifiedDocument
-from core.registry import parser_registry
+from core.registry import PARSER_REGISTRY, register_parser, BaseParser
 
 # Import parsers to trigger registration decorators
 import ingestion.parsers
@@ -16,6 +16,18 @@ import retrieval.embedder
 import retrieval.vector_store
 from ingestion.pipeline import IngestionPipeline
 from llm.orchestrator import RAGOrchestrator
+
+@register_parser("py")
+class PythonParser(BaseParser):
+    def parse(self, filename: str, content_bytes: bytes, metadata = None) -> UnifiedDocument:
+        content = content_bytes.decode("utf-8", errors="ignore")
+        return UnifiedDocument(
+            doc_id="code_test_uuid",
+            modality="code",
+            source_path=filename,
+            raw_content=content,
+            metadata={"language": "python"}
+        )
 
 def print_separator(title: str):
     print("\n" + "=" * 60)
@@ -32,7 +44,7 @@ def run_test():
         print(f"  - {item.term}: {item.meaning}")
 
     print_separator("2. REGISTERED PLUGINS")
-    print(f"Parsers online:      {parser_registry.list_registered()}")
+    print(f"Parsers online:      {list(PARSER_REGISTRY.keys())}")
     
     # Initialize pipeline
     pipeline = IngestionPipeline(
@@ -48,10 +60,9 @@ def run_test():
     print("Ingesting PDF...")
     pdf_chunks = pipeline.ingest_file(
         filename="shutdown_sop.pdf",
-        content_bytes=pdf_bytes,
-        parser_type="pdf"
+        content_bytes=pdf_bytes
     )
-    print(f"--> Formatted chunk preview: '{pdf_chunks[0].content}'\n")
+    print(f"--> Formatted chunk preview: '{pdf_chunks[0].text}'\n")
 
     # B. CAD/DXF Ingestion
     # Simulated ASCII DXF representation with text entities:
@@ -60,10 +71,9 @@ def run_test():
     print("Ingesting CAD Drawings (DXF simulation)...")
     cad_chunks = pipeline.ingest_file(
         filename="refinery_layout.dxf",
-        content_bytes=dxf_ascii,
-        parser_type="cad"
+        content_bytes=dxf_ascii
     )
-    print(f"--> Formatted chunk preview: '{cad_chunks[0].content}'\n")
+    print(f"--> Formatted chunk preview: '{cad_chunks[0].text}'\n")
 
     # C. Email Ingestion
     # Simulated simple raw email:
@@ -79,10 +89,9 @@ def run_test():
     print("Ingesting Email Archives...")
     email_chunks = pipeline.ingest_file(
         filename="incident_report.eml",
-        content_bytes=email_raw,
-        parser_type="email"
+        content_bytes=email_raw
     )
-    print(f"--> Formatted chunk preview: '{email_chunks[0].content}'\n")
+    print(f"--> Formatted chunk preview: '{email_chunks[0].text}'\n")
 
     print_separator("4. DYNAMIC ONTOLOGY SCHEMA VALIDATION")
     
@@ -151,11 +160,11 @@ def run_test():
     
     print("\nReturned Grounded Citations:")
     for citation in response["citations"]:
-        print(f"  * [{citation['document_type']}] {citation['source']}, Chunk {citation['chunk_index']}")
+        print(f"  * [{citation['modality']}] {citation['source_path']}, Chunk {citation['chunk_index']}")
         print(f"    Snippet: \"{citation['snippet']}\"")
 
     print("\n" + "=" * 60)
-    print(" ALL STEP 1 TESTS COMPLETED SUCCESSFULLY! ")
+    print(" ALL STEP 2 & 3 TESTS COMPLETED SUCCESSFULLY! ")
     print("=" * 60)
 
 if __name__ == "__main__":

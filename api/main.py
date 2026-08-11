@@ -102,8 +102,8 @@ async def post_ingest_file(
             "chunks_count": len(chunks),
             "chunks": [
                 {
-                    "index": chunk.index,
-                    "content_snippet": chunk.content[:150] + "..." if len(chunk.content) > 150 else chunk.content,
+                    "index": chunk.metadata.get("index", 0),
+                    "content_snippet": chunk.text[:150] + "..." if len(chunk.text) > 150 else chunk.text,
                     "metadata": chunk.metadata
                 }
                 for chunk in chunks

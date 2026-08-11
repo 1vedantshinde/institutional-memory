@@ -49,11 +49,11 @@ class RAGOrchestrator:
         citations = []
         for chunk in chunks:
             citations.append({
-                "document_id": chunk.document_id,
-                "chunk_index": chunk.index,
-                "source": chunk.metadata.get("source", "Unknown"),
-                "document_type": chunk.metadata.get("document_type", "Unknown"),
-                "snippet": chunk.content[:150] + "..." if len(chunk.content) > 150 else chunk.content
+                "doc_id": chunk.doc_id,
+                "chunk_index": chunk.metadata.get("index", 0),
+                "source_path": chunk.metadata.get("source_path", "Unknown"),
+                "modality": chunk.metadata.get("modality", "Unknown"),
+                "snippet": chunk.text[:150] + "..." if len(chunk.text) > 150 else chunk.text
             })
             
         return {
