@@ -2,11 +2,20 @@ import os
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 class GlossaryItem(BaseModel):
     term: str
-    meaning: str
+    meaning: str = ""
+    definition: str = ""
+
+    @model_validator(mode="after")
+    def sync_meaning_definition(self) -> 'GlossaryItem':
+        if not self.meaning and self.definition:
+            self.meaning = self.definition
+        elif not self.definition and self.meaning:
+            self.definition = self.meaning
+        return self
 
 class DomainConfig(BaseModel):
     domain_name: str = "Generic Industrial Plant"
@@ -17,6 +26,7 @@ class DomainConfig(BaseModel):
         "MAINTAINED_BY", "PART_OF", "MENTIONED_IN", "CAUSED_BY", "SUPERSEDES"
     ])
     glossary: List[GlossaryItem] = Field(default_factory=list)
+    entity_aliases: Dict[str, str] = Field(default_factory=dict)
     system_prompt_template: str = (
         "You are a knowledge assistant for {domain_name}.\n"
         "Answer only using the provided context. Cite sources for every claim.\n"

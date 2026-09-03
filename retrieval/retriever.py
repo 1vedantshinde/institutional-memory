@@ -1,14 +1,16 @@
-"""Hybrid retrieval and reranking.
+"""Hybrid retrieval and reranking engine.
 
-Combines semantic vectors, term indexes, rank fusion, cross encoders, and graph matches.
+Combines vector similarity, Okapi BM25 keyword search, Reciprocal Rank Fusion (RRF),
+CrossEncoder reranking (ms-marco-MiniLM-L-6-v2), and 1-hop Knowledge Graph augmentation.
 """
 import math
+import os
 from typing import List, Dict, Any, Optional
 from core.schema import Chunk
 from retrieval.vector_store import search
 
 class BM25Index:
-    """Mock/local BM25 index calculation scanning the current Qdrant database."""
+    """Okapi BM25 index calculation scanning the current vector store payloads."""
     
     def search(self, query: str, top_k: int = 8) -> List[Chunk]:
         from retrieval.vector_store import qdrant
@@ -80,9 +82,12 @@ class BM25Index:
 bm25_index = BM25Index()
 
 def reciprocal_rank_fusion(vector_hits: List[Chunk], keyword_hits: List[Chunk], k: int = 60) -> List[Chunk]:
-    """Combines semantic and term-based results using Reciprocal Rank Fusion."""
-    scores = {}
-    chunk_map = {}
+    """Combines semantic and term-based results using Reciprocal Rank Fusion (RRF).
+    
+    Score = sum(1 / (k + rank)) across vector and keyword hit lists.
+    """
+    scores: Dict[str, float] = {}
+    chunk_map: Dict[str, Chunk] = {}
     
     for rank, chunk in enumerate(vector_hits):
         chunk_map[chunk.chunk_id] = chunk
@@ -96,7 +101,6 @@ def reciprocal_rank_fusion(vector_hits: List[Chunk], keyword_hits: List[Chunk], 
     return [chunk_map[cid] for cid, score in sorted_ids]
 
 get_cross_encoder_rerank = None
-import os
 if os.environ.get("USE_NEURAL_MODELS") == "1":
     try:
         os.environ["HF_HUB_OFFLINE"] = "1"
@@ -120,7 +124,7 @@ if os.environ.get("USE_NEURAL_MODELS") == "1":
         get_cross_encoder_rerank = None
 
 class MockCrossEncoder:
-    """Reranker determining query relevance via term overlap and transformer models."""
+    """CrossEncoder reranking interface with fallback token-overlap scoring stub."""
     
     def rerank(self, query: str, chunks: List[Chunk]) -> List[Chunk]:
         if get_cross_encoder_rerank is not None:
@@ -156,18 +160,41 @@ def hybrid_retrieve(query: str, top_k: int = 8) -> List[Chunk]:
     reranked = cross_encoder.rerank(query, fused)
     return reranked[:top_k]
 
+import re
+
 def extract_entity_mentions(query: str) -> List[str]:
-    """Locates any known Knowledge Graph nodes that are sub-referenced in user query."""
+    """Locates Knowledge Graph nodes in user query using case/whitespace/punctuation normalized matches."""
     from knowledge.graph_store import neo4j
-    mentions = []
+    from knowledge.ner import extract_equipment_tags_regex, resolve_entity_id
+    
+    mentions = set()
     query_lower = query.lower()
+    query_norm = re.sub(r'[\s_\-]+', '', query_lower)
+    
+    # 1. Normalized string matches against active graph nodes
     for name in neo4j.nodes.keys():
-        if name.lower() in query_lower:
-            mentions.append(name)
-    return list(set(mentions))
+        name_lower = name.lower()
+        name_norm = re.sub(r'[\s_\-]+', '', name_lower)
+        if name_lower in query_lower or (len(name_norm) >= 3 and name_norm in query_norm):
+            mentions.add(name)
+            
+    # 2. Regex tag extraction + RAKG alias resolution
+    extracted_tags = extract_equipment_tags_regex(query)
+    for tag in extracted_tags:
+        canonical_id = resolve_entity_id(tag)
+        if canonical_id in neo4j.nodes:
+            mentions.add(canonical_id)
+        else:
+            canonical_norm = re.sub(r'[\s_\-]+', '', canonical_id.lower())
+            for name in neo4j.nodes.keys():
+                name_norm = re.sub(r'[\s_\-]+', '', name.lower())
+                if name_norm == canonical_norm:
+                    mentions.add(name)
+            
+    return list(mentions)
 
 def graph_augment(query: str, retrieved_chunks: List[Chunk]) -> List[Chunk]:
-    """Retrieves 1-hop nodes linked to mentioned entities to augment contextual grounding."""
+    """Retrieves 1-hop triplet neighbors for entity mentions and appends them as extra context."""
     entities = extract_entity_mentions(query)
     
     from knowledge.graph_store import neo4j

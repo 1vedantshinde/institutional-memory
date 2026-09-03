@@ -151,7 +151,9 @@ def get_parser(file_path: str) -> BaseParser:
     """Retrieves an instantiated parser registered for the given file's extension."""
     ext = file_path.split(".")[-1].lower()
     if ext not in PARSER_REGISTRY:
-        raise UnsupportedFormatError(f"No parser registered for .{ext}")
+        raise UnsupportedFormatError(
+            f"No parser registered for .{ext}. Registered parsers: {list(PARSER_REGISTRY.keys())}"
+        )
     return PARSER_REGISTRY[ext]()
 
 embedder_registry: Registry[Type[BaseEmbedder]] = Registry("Embedder")

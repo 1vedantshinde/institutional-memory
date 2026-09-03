@@ -1,6 +1,7 @@
 """Vector store registry and pluggable search interface.
 
-Allows switching databases (e.g. Qdrant / C++ engine) cleanly.
+Simulates Qdrant DB points storage using normalized vector dot-product cosine similarity.
+Exposes InMemoryVectorStore implementing BaseVectorStore.
 """
 from typing import List, Dict, Any, Optional
 from core.registry import vector_store_registry, BaseVectorStore
@@ -25,7 +26,7 @@ class QdrantMockClient:
         results = []
         for point_id, point in self.points.items():
             vec = point["vector"]
-            # Cosine similarity dot product calculation
+            # Cosine similarity dot product calculation on normalized vectors
             score = sum(q * v for q, v in zip(query_vector, vec))
             results.append((score, point))
             
@@ -36,11 +37,13 @@ class QdrantMockClient:
 qdrant = QdrantMockClient()
 
 def upsert_chunk(chunk: Chunk) -> None:
-    """Procedural vector helper merging and storing vectors inside Qdrant."""
-    vec = embed(chunk.text)
-    chunk.embedding = vec
+    """Procedural vector helper storing vectors inside Qdrant."""
+    if not chunk.embedding:
+        vec = embed(chunk.text)
+        chunk.embedding = vec
+    else:
+        vec = chunk.embedding
     
-    # Store complete attributes inside payload
     payload_to_store = {
         **chunk.metadata,
         "text": chunk.text,
@@ -56,7 +59,6 @@ def search(query_text: str, top_k: int = 8) -> List[Chunk]:
     chunks = []
     for pt in points:
         payload = pt["payload"]
-        # Extract payload and construct schema Chunk
         meta = {k: v for k, v in payload.items() if k not in ["text", "doc_id"]}
         chunks.append(Chunk(
             chunk_id=pt["id"],
@@ -67,32 +69,47 @@ def search(query_text: str, top_k: int = 8) -> List[Chunk]:
         ))
     return chunks
 
-# OO Adapter class mapping
 @vector_store_registry.register("in_memory")
+@vector_store_registry.register("qdrant_mock")
 class InMemoryVectorStore(BaseVectorStore):
-    """Bridge Adapter that lets the IngestionPipeline store chunks inside Qdrant."""
+    """Bridge Adapter wrapping QdrantMockClient for VectorStore registry operations."""
     
+    def __init__(self, client: Optional[QdrantMockClient] = None):
+        self.client = client or qdrant
+
     def insert_chunks(self, chunks: List[Chunk]) -> None:
-        """Saves chunks in Qdrant."""
+        """Saves chunks into the vector store."""
         for chunk in chunks:
-            upsert_chunk(chunk)
+            if not chunk.embedding:
+                chunk.embedding = embed(chunk.text)
+            payload_to_store = {
+                **chunk.metadata,
+                "text": chunk.text,
+                "doc_id": chunk.doc_id
+            }
+            self.client.upsert(id=chunk.chunk_id, vector=chunk.embedding, payload=payload_to_store)
             
     def similarity_search(
         self, 
-        query_embedding: List[float], 
-        k: int = 5, 
+        query_vector: List[float], 
+        top_k: int = 8, 
+        metadata_filter: Optional[Dict[str, Any]] = None,
+        k: Optional[int] = None,
         filters: Optional[Dict[str, Any]] = None
     ) -> List[Chunk]:
-        """Performs cosine lookups complying with active filters."""
-        points = qdrant.search(query_embedding, limit=k)
+        """Performs cosine lookups using query vector and filters."""
+        limit_val = k if k is not None else top_k
+        active_filters = filters if filters is not None else metadata_filter
+        
+        points = self.client.search(query_vector, limit=limit_val)
         chunks = []
         for pt in points:
             payload = pt["payload"]
             
             # Metadata filter validation
-            if filters:
+            if active_filters:
                 matching = True
-                for filter_key, filter_val in filters.items():
+                for filter_key, filter_val in active_filters.items():
                     if payload.get(filter_key) != filter_val:
                         matching = False
                         break
@@ -104,6 +121,6 @@ class InMemoryVectorStore(BaseVectorStore):
                 doc_id=payload.get("doc_id", "Unknown"),
                 text=payload.get("text", ""),
                 embedding=pt["vector"],
-                metadata={k: v for k, v in payload.items() if k not in ["text", "doc_id"]}
+                metadata={k_meta: v_meta for k_meta, v_meta in payload.items() if k_meta not in ["text", "doc_id"]}
             ))
         return chunks

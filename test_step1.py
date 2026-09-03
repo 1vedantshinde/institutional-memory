@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Verification script for Step 1 — The Domain Config & Plugin Registry.
+"""Verification script for Step 1 & Step 14 — Domain Config & Plugin Registry Tests.
 
-Demonstrates parsing, chunking, validation, and domain-aware prompt building.
+Demonstrates registered parsers, multi-modality ingestion, ontology schema validation (negative test), and RAG query execution.
 """
 
 import sys
 import traceback
+from pydantic import ValidationError
 from core.config import load_domain_config, DOMAIN
 from core.schema import Node, Edge, UnifiedDocument
 from core.registry import PARSER_REGISTRY, register_parser, BaseParser
@@ -65,8 +66,6 @@ def run_test():
     print(f"--> Formatted chunk preview: '{pdf_chunks[0].text}'\n")
 
     # B. CAD/DXF Ingestion
-    # Simulated ASCII DXF representation with text entities:
-    # 0 -> TEXT (Entity Group Header), 1 -> Pump-101 (Text value), 8 -> Layer_0
     dxf_ascii = b"0\nSECTION\n2\nENTITIES\n0\nTEXT\n1\nPump-101\n8\nLayer_0\n0\nINSERT\n2\nValves-Block\n10\n100.0\n20\n200.0\n0\nENDSEC\n"
     print("Ingesting CAD Drawings (DXF simulation)...")
     cad_chunks = pipeline.ingest_file(
@@ -76,7 +75,6 @@ def run_test():
     print(f"--> Formatted chunk preview: '{cad_chunks[0].text}'\n")
 
     # C. Email Ingestion
-    # Simulated simple raw email:
     email_raw = (
         b"From: maintenance@plant.com\n"
         b"To: safety@plant.com\n"
@@ -105,7 +103,7 @@ def run_test():
         print(f"  * Chunk {j}: '{c.text}' (strategy: {c.metadata.get('strategy')})")
     print()
 
-    print_separator("4. DYNAMIC ONTOLOGY SCHEMA VALIDATION")
+    print_separator("4. DYNAMIC ONTOLOGY SCHEMA VALIDATION (GUARDRAIL TESTS)")
     
     # Prepare valid graph instances complying with configured types
     valid_nodes = [
@@ -121,43 +119,47 @@ def run_test():
     print("Injecting valid nodes and relationships...")
     pipeline.ingest_graph_elements(valid_nodes, valid_edges)
     
-    # Try injecting invalid entities to verify validation guardrails
+    # Direct Pydantic Node Negative Test (deliberately invalid type)
+    print("\nExecuting direct Node(type='UnknownRoleType') negative validation test...")
+    try:
+        invalid_node_obj = Node(name="DirectSafetyZone", type="UnknownRoleType")
+        print("ERROR: Node model failed to reject invalid type!")
+        sys.exit(1)
+    except (ValidationError, ValueError) as ve:
+        print(f"SUCCESS: Direct Node instantiating rejected as expected. Error: {ve}")
+
+    # Pipeline Ingestion Negative Test (deliberately invalid type)
     invalid_nodes = [
         {"name": "Safety-Zone", "type": "UnknownRoleType"} # 'UnknownRoleType' is not in domain.yaml
     ]
-    print("\nAttempting invalid node type ingestion (should fail)...")
+    print("\nAttempting invalid node type ingestion via pipeline (should fail)...")
     try:
         pipeline.ingest_graph_elements(invalid_nodes, [])
-        print("ERROR: Validation failed to detect invalid type!")
+        print("ERROR: Pipeline validation failed to detect invalid type!")
         sys.exit(1)
     except ValueError as e:
-        print(f"SUCCESS: Rejected invalid node as expected. Message: {e}")
+        print(f"SUCCESS: Pipeline rejected invalid node as expected. Message: {e}")
 
     invalid_edges = [
         {"source_id": "Pump-101", "target_id": "SOP-402", "type": "LOVES"} # 'LOVES' is not in domain.yaml
     ]
-    print("\nAttempting invalid relation type ingestion (should fail)...")
+    print("\nAttempting invalid relation type ingestion via pipeline (should fail)...")
     try:
         pipeline.ingest_graph_elements([], invalid_edges)
-        print("ERROR: Validation failed to detect invalid relationship type!")
+        print("ERROR: Pipeline validation failed to detect invalid relationship type!")
         sys.exit(1)
     except ValueError as e:
-        print(f"SUCCESS: Rejected invalid edge as expected. Message: {e}")
+        print(f"SUCCESS: Pipeline rejected invalid edge as expected. Message: {e}")
 
     print_separator("5. END-TO-END RAG ORCHESTRATION WITH GLOSSARY MATCHER")
     
-    # Instantiate orchestrator using the already populated in-memory stores
     orchestrator = RAGOrchestrator(
         llm_key="mock",
         embedder_key="mock",
         vector_store_key="in_memory"
     )
-    # Direct reuse of the pipeline's memory collections (since they share registry instance type memory)
-    # To ensure chunks we loaded exist in search, we copy pipeline stores references
     orchestrator.vector_store = pipeline.vector_store
     
-    # The query below mentions P&ID, which is in our domain.yaml glossary.
-    # The glossary matcher should identify it and auto-expand definitions.
     user_query = "What happens if Pump-101 fails during a P&ID review?"
     print(f"Querying: '{user_query}'")
     
@@ -172,11 +174,11 @@ def run_test():
     
     print("\nReturned Grounded Citations:")
     for citation in response["citations"]:
-        print(f"  * [{citation['modality']}] {citation['source_path']}, Chunk {citation['chunk_index']}")
-        print(f"    Snippet: \"{citation['snippet']}\"")
+        print(f"  * [{citation.get('modality', 'Unknown')}] {citation.get('source_path', 'Unknown')}, Chunk {citation.get('chunk_index', 0)}")
+        print(f"    Snippet: \"{citation.get('snippet', '')}\"")
 
-    print_separator("6. KNOWLEDGE GRAPH WRITER OPERATIONS (STEP 6)")
-    from knowledge.graph_store import write_entity, write_relation, link_chunk_to_entities, neo4j
+    print_separator("6. KNOWLEDGE GRAPH WRITER OPERATIONS")
+    from knowledge.graph_store import write_entity, write_relation, link_chunk_to_entities
     from core.schema import Chunk
     
     class ExtractedEntity:
@@ -205,7 +207,7 @@ def run_test():
     link_chunk_to_entities(mock_chunk, [e1, e2])
 
     print("\n" + "=" * 60)
-    print(" ALL STEP 2 - 6 TESTS COMPLETED SUCCESSFULLY! ")
+    print(" ALL STEP 1 TESTS COMPLETED SUCCESSFULLY! ")
     print("=" * 60)
 
 if __name__ == "__main__":

@@ -53,8 +53,7 @@ class CADParser(BaseParser):
                     val = lines[i+1].strip()
                     if group_code == "1":
                         extracted_text.append(f"Extracted Text: {val}")
-                    elif group_code == "2" and lines[max(0, i-2)].strip() == "INSERT":
-                        # Block Reference name
+                    elif group_code == "2":
                         extracted_text.append(f"Block Reference: {val}")
             except Exception as e:
                 extracted_text.append(f"Fallback ASCII CAD parser error: {str(e)}")
