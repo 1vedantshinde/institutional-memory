@@ -2,30 +2,29 @@
 
 UnifiedDocument, Chunk, Node, and Edge are the stable contracts for the pipeline.
 """
-from pydantic import BaseModel, Field, model_validator
-from typing import Dict, Any, List, Optional
 import uuid
 import hashlib
-from core.config import DOMAIN
+from typing import Dict, Any, List, Optional
+from pydantic import BaseModel, Field, model_validator
+
+def _get_domain():
+    """Lazy accessor function for DOMAIN to avoid circular import errors."""
+    from core.config import DOMAIN
+    return DOMAIN
 
 def make_doc_id(modality: str, source_path: str) -> str:
-    """Generates a stable, reproducible doc_id from modality and path."""
+    """Generates a stable, reproducible doc_id from modality and path using SHA-256."""
     hasher = hashlib.sha256()
     hasher.update(f"{modality}:{source_path}".encode("utf-8"))
     return hasher.hexdigest()
 
 class UnifiedDocument(BaseModel):
-
-    """Standard format for all ingested files in the pipeline.
-    
-    Whether it's PDF, CAD, Email, or Sensor log, the parser must return this
-    representation to keep the downstream pipeline completely format-agnostic.
-    """
-    doc_id: str            # e.g. hash of (modality + filename) or uuid
-    modality: str          # "text" | "code" | "audio" | "image" | "tabular" | ...
+    """Standard format for all ingested files in the pipeline."""
+    doc_id: str
+    modality: str
     source_path: str
-    raw_content: str       # normalized text representation, regardless of original format
-    metadata: Dict[str, Any] = Field(default_factory=dict)  # format-specific properties
+    raw_content: str
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 class Chunk(BaseModel):
     """Standard unit of retrieval and embedding."""
@@ -33,8 +32,7 @@ class Chunk(BaseModel):
     doc_id: str
     text: str
     embedding: Optional[List[float]] = None
-    metadata: Dict[str, Any] = Field(default_factory=dict)  # {page, timestamp, index, etc.}
-
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 class Node(BaseModel):
     """Graph Entity Node representation.
@@ -42,14 +40,14 @@ class Node(BaseModel):
     Validated dynamically against the loaded DOMAIN configuration's entity types.
     """
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    name: str  # e.g., "Pump-101"
-    type: str  # Must match a type in DOMAIN.entity_types
+    name: str = ""
+    type: str
     properties: Dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_type(self) -> 'Node':
-        # Retrieve the current entity types from domain config
-        valid_types = DOMAIN.entity_types
+        domain = _get_domain()
+        valid_types = domain.entity_types
         if self.type not in valid_types:
             raise ValueError(
                 f"Invalid entity type '{self.type}'. Must be one of configured entity types: {valid_types}"
@@ -61,17 +59,30 @@ class Edge(BaseModel):
     
     Validated dynamically against the loaded DOMAIN configuration's relation types.
     """
-    source_id: str  # Identifier of source node
-    target_id: str  # Identifier of target node
-    type: str  # Must match a relation in DOMAIN.relation_types
+    source_id: str = ""
+    target_id: str = ""
+    source: Optional[str] = None
+    target: Optional[str] = None
+    type: str
     properties: Dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_type(self) -> 'Edge':
-        # Retrieve current relation types from domain config
-        valid_relations = DOMAIN.relation_types
+        if not self.source_id and self.source:
+            self.source_id = self.source
+        elif not self.source and self.source_id:
+            self.source = self.source_id
+            
+        if not self.target_id and self.target:
+            self.target_id = self.target
+        elif not self.target and self.target_id:
+            self.target = self.target_id
+
+        domain = _get_domain()
+        valid_relations = domain.relation_types
         if self.type not in valid_relations:
             raise ValueError(
                 f"Invalid relation type '{self.type}'. Must be one of configured relation types: {valid_relations}"
             )
         return self
+

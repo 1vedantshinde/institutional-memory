@@ -54,6 +54,10 @@ class EmailParser(BaseParser):
         doc_meta = {
             **meta,
             "parsed_by": "EmailParser",
+            "from": sender,
+            "to": recipient,
+            "subject": subject,
+            "date": date,
             "email_headers": {
                 "from": sender,
                 "to": recipient,

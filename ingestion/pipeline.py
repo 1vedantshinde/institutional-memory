@@ -86,23 +86,29 @@ class IngestionPipeline:
         entity_types or relation_types specified in config/domain.yaml.
         """
         validated_nodes = []
-        for index, node_dict in enumerate(nodes_raw):
+        for index, node_item in enumerate(nodes_raw):
             try:
-                node = Node(**node_dict)
+                if isinstance(node_item, Node):
+                    node = node_item
+                else:
+                    node = Node(**node_item)
                 validated_nodes.append(node)
             except Exception as e:
                 raise ValueError(
-                    f"Ontology Validation Error at node index {index} (Data: {node_dict}): {str(e)}"
+                    f"Ontology Validation Error at node index {index} (Data: {node_item}): {str(e)}"
                 )
                 
         validated_edges = []
-        for index, edge_dict in enumerate(edges_raw):
+        for index, edge_item in enumerate(edges_raw):
             try:
-                edge = Edge(**edge_dict)
+                if isinstance(edge_item, Edge):
+                    edge = edge_item
+                else:
+                    edge = Edge(**edge_item)
                 validated_edges.append(edge)
             except Exception as e:
                 raise ValueError(
-                    f"Ontology Validation Error at edge index {index} (Data: {edge_dict}): {str(e)}"
+                    f"Ontology Validation Error at edge index {index} (Data: {edge_item}): {str(e)}"
                 )
                 
         # Insert validated nodes & edges into graph database

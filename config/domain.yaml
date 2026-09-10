@@ -1,4 +1,13 @@
 domain_name: Generic Industrial Plant
+entity_aliases:
+  P204: P-204
+  P204A: P-204
+  Pump 101: Pump-101
+  Pump 204: P-204
+  Pump101: Pump-101
+  Pump204: P-204
+  SOP 402: SOP-402
+  SOP402: SOP-402
 entity_types:
 - Equipment
 - Procedure
@@ -7,11 +16,14 @@ entity_types:
 - Incident
 - Parameter
 glossary:
-- meaning: Piping and Instrumentation Diagram
+- definition: Piping and Instrumentation Diagram
+  meaning: Piping and Instrumentation Diagram
   term: P&ID
-- meaning: Operational Technology
+- definition: Operational Technology
+  meaning: Operational Technology
   term: OT
-- meaning: Standard Operating Procedure
+- definition: Standard Operating Procedure
+  meaning: Standard Operating Procedure
   term: SOP
 relation_types:
 - MAINTAINED_BY

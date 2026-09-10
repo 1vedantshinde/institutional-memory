@@ -1,6 +1,6 @@
 """FastAPI application entrypoint.
 
-Exposes REST API endpoints for chatbot interaction, document ingestion, and configuration swapping.
+Exposes REST API endpoints for chatbot interaction, document ingestion, and dynamic domain configuration hot-reloading.
 """
 import os
 import json
@@ -22,7 +22,7 @@ from llm.orchestrator import RAGOrchestrator, answer
 
 app = FastAPI(
     title="Institutional Memory API",
-    description="A decoupled, dynamic chatbot backend adaptable to any industry context or data format.",
+    description="A decoupled, format-agnostic knowledge intelligence API backend.",
     version="2.0"
 )
 
@@ -54,13 +54,14 @@ orchestrator.vector_store = pipeline.vector_store
 UPLOADS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "uploads")
 os.makedirs(UPLOADS_DIR, exist_ok=True)
 
-# Helper functions
+
 def save_upload(upload_file: UploadFile) -> str:
     """Saves raw FastAPI upload files locally to the uploads folder."""
     file_path = os.path.join(UPLOADS_DIR, upload_file.filename)
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(upload_file.file, buffer)
     return file_path
+
 
 def ingest_file(file_path: str) -> Dict[str, Any]:
     """Ingests local file into the active similarity index and database."""
@@ -74,8 +75,9 @@ def ingest_file(file_path: str) -> Dict[str, Any]:
         "chunks_count": len(chunks)
     }
 
+
 def ingest_folder(folder_path: str) -> Dict[str, Any]:
-    """Locates and processes all supported documents in a system folder."""
+    """Locates and processes all supported documents in a system folder recursively."""
     if not os.path.isdir(folder_path):
         raise HTTPException(status_code=400, detail=f"Provided directory root '{folder_path}' is not valid.")
         
@@ -105,16 +107,23 @@ def ingest_folder(folder_path: str) -> Dict[str, Any]:
         "errors": errors
     }
 
+
 class QueryRequest(BaseModel):
-    query: str
-    limit: Optional[int] = 3
+    q: Optional[str] = None
+    query: Optional[str] = None
+    limit: Optional[int] = 8
     filters: Optional[Dict[str, Any]] = None
+
+
+class FolderIngestRequest(BaseModel):
+    folder_path: str
+
 
 class GraphPayload(BaseModel):
     nodes: List[Dict[str, Any]]
     edges: List[Dict[str, Any]]
 
-# Endpoints
+
 @app.post("/ingest")
 def ingest(file: UploadFile = File(...)):
     """Uploads and ingests a single document of any registered format."""
@@ -125,36 +134,51 @@ def ingest(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/ingest-folder")
-def ingest_folder_endpoint(folder_path: str):
+def ingest_folder_endpoint(folder_path: Optional[str] = None, req: Optional[FolderIngestRequest] = None):
     """Processes all compatible document formats inside a directory recursively."""
+    target_path = folder_path or (req.folder_path if req else None)
+    if not target_path:
+        raise HTTPException(status_code=400, detail="Parameter 'folder_path' is required.")
     try:
-        return ingest_folder(folder_path)
+        return ingest_folder(target_path)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/query")
-def query(q: str):
+def query_endpoint(q: Optional[str] = None, req: Optional[QueryRequest] = None):
     """Executes hybrid vector/graph queries and maps grounded answer responses."""
+    query_text = q or (req.query if req else None) or (req.q if req else None)
+    if not query_text:
+        raise HTTPException(status_code=400, detail="Query parameter 'q' or body 'query' is required.")
+    limit = req.limit if (req and req.limit) else 8
+    filters = req.filters if req else None
     try:
-        return answer(q)
+        return orchestrator.query(query_text, limit=limit, filters=filters)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Query failed: {str(e)}")
+
 
 @app.get("/config")
 def get_config():
     """Fetches the active domain structure configuration."""
     return core.config.DOMAIN
 
+
 @app.put("/config")
 def update_config(new_config: dict):
-    """Updates and reloads domain configuration layout during runtime."""
+    """Updates and reloads domain configuration layout during runtime without restart."""
     try:
         core.config.save_domain_config(new_config)
         core.config.reload_domain_config()
         return {"status": "updated"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Config reload failed: {str(e)}")
+
 
 # Legacy compatibility endpoints
 @app.post("/ingest/file")
@@ -168,6 +192,7 @@ async def post_ingest_file(
         return ingest_file(save_path)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/ingest/graph")
 def post_ingest_graph(payload: GraphPayload):

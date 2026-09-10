@@ -1,29 +1,41 @@
 """Generic graph store transaction operations.
 
-Backs generic and parameter-based graph writes without hardcoded ontologies.
+Simulates Neo4j Cypher MERGE semantics in-memory for entity and relation nodes,
+and provides 1-hop neighbor triplet string formatting for RAG prompt augmentation.
 """
-from typing import Any, List
+from typing import Any, List, Dict, Optional
 
 class Neo4jSimulationDriver:
-    """Driver simulating Neo4j Cypher merges for entity and relation nodes."""
+    """Driver simulating Neo4j Cypher MERGE semantics for entity and relationship nodes."""
     
     def __init__(self):
-        self.nodes = {}
-        self.edges = []
+        self.nodes: Dict[str, Dict[str, Any]] = {}
+        self.edges: List[Dict[str, Any]] = []
         
     def merge_node(self, label: str, key: str, value: str, props: dict) -> None:
-        self.nodes[value] = {
-            "label": label,
-            "key": key,
-            "value": value,
-            "properties": props
-        }
+        """Mimics MERGE (n:Label {key: value}) SET n += props, preventing node duplication."""
+        node_key = str(value)
+        if node_key in self.nodes:
+            self.nodes[node_key]["properties"].update(props)
+        else:
+            self.nodes[node_key] = {
+                "label": label,
+                "key": key,
+                "value": value,
+                "properties": dict(props)
+            }
         print(f"[Neo4j] MERGE (n:{label} {{{key}: '{value}'}}) SET n += {props}")
         
     def merge_edge(self, source: Any, target: Any, type: str) -> None:
+        """Mimics MERGE (source)-[:TYPE]->(target), preventing duplicate edges."""
         source_id = source.id if hasattr(source, "id") else (source.name if hasattr(source, "name") else str(source))
         target_id = target.id if hasattr(target, "id") else (target.name if hasattr(target, "name") else str(target))
         
+        # Check if identical edge already exists
+        for edge in self.edges:
+            if edge["source_id"] == source_id and edge["target_id"] == target_id and edge["type"] == type:
+                return
+                
         self.edges.append({
             "source_id": source_id,
             "target_id": target_id,
@@ -32,16 +44,19 @@ class Neo4jSimulationDriver:
         print(f"[Neo4j] MERGE ({source_id}) -[:{type}]-> ({target_id})")
 
     def get_neighbors(self, entity_name: str) -> List[str]:
-        """Query 1-hop connected Neo4j relationships for retrieval context."""
+        """Query 1-hop connected Neo4j relationships formatted as triplet strings.
+        
+        Exact output string format: "<Entity> -[:RELATION_TYPE]-> <Entity>"
+        """
         neighbors = []
         for edge in self.edges:
             src = edge["source_id"]
             tgt = edge["target_id"]
             rel = edge["type"]
             if src == entity_name:
-                neighbors.append(f"{entity_name} -[:{rel}]-> {tgt}")
+                neighbors.append(f"{src} -[:{rel}]-> {tgt}")
             elif tgt == entity_name:
-                neighbors.append(f"{src} -[:{rel}]-> {entity_name}")
+                neighbors.append(f"{src} -[:{rel}]-> {tgt}")
         return neighbors
 
 # Global driver instance
@@ -49,12 +64,13 @@ neo4j = Neo4jSimulationDriver()
 
 def write_entity(entity: Any) -> None:
     """Generic merge node transaction wrapper."""
-    # Handle various possible attribute name mappings (attrs or properties)
     props = getattr(entity, "attrs", getattr(entity, "properties", {}))
+    label = getattr(entity, "type", "Entity")
+    name = getattr(entity, "name", getattr(entity, "id", str(entity)))
     neo4j.merge_node(
-        label=entity.type,
+        label=label,
         key="name",
-        value=entity.name,
+        value=name,
         props=props
     )
 
@@ -64,5 +80,7 @@ def write_relation(source_entity: Any, target_entity: Any, relation_type: str) -
 
 def link_chunk_to_entities(chunk: Any, entities: List[Any]) -> None:
     """Generic link to connect chunks to their extracted entities."""
+    chunk_id = chunk.chunk_id if hasattr(chunk, "chunk_id") else str(chunk)
     for e in entities:
-        neo4j.merge_edge(chunk.chunk_id, e.id, type="MENTIONED_IN")
+        e_id = getattr(e, "id", getattr(e, "name", str(e)))
+        neo4j.merge_edge(chunk_id, e_id, type="MENTIONED_IN")
