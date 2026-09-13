@@ -4,3 +4,24 @@ typing-extensions
 fastapi
 uvicorn
 python-multipart
+
+# Real LLM backends
+anthropic
+
+# Real PDF parsing
+pypdf
+
+# Real vector store
+qdrant-client
+
+# Real graph store
+neo4j
+
+# Neural embeddings + cross-encoder reranking (gate with USE_NEURAL_MODELS=1)
+sentence-transformers
+
+# Secrets / env loading
+python-dotenv
+
+# CAD parsing
+ezdxf

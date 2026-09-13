@@ -4,17 +4,20 @@ Decoupled orchestrator handling hybrid retrieval, prompt rendering,
 LLM response generation, confidence scoring, and citation mapping.
 """
 import re
+import os
 from typing import List, Dict, Any, Optional
 from core.registry import llm_registry, vector_store_registry, embedder_registry
 from core.schema import Chunk
 from llm.prompt_builder import build_system_prompt, build_prompt
 from retrieval.retriever import hybrid_retrieve, graph_augment
+import llm.providers  # noqa: F401 — ensure provider registration side-effects run
 
 # Default Confidence Threshold
 CONFIDENCE_THRESHOLD = 0.5
 
-# Global LLM provider instance: swap the targets here to change providers
-llm = llm_registry.get("mock")()
+# Global LLM provider instance: controlled by LLM_PROVIDER env var (default: "mock")
+# Switch to real backend: export LLM_PROVIDER=anthropic
+llm = llm_registry.get(os.getenv("LLM_PROVIDER", "mock"))()
 
 
 def score_confidence(response: str, context_chunks: List[Chunk]) -> float:
@@ -119,10 +122,12 @@ class RAGOrchestrator:
 
     def __init__(
         self,
-        llm_key: str = "mock",
+        llm_key: str = None,
         embedder_key: str = "mock",
         vector_store_key: str = "in_memory"
     ):
+        # Respect LLM_PROVIDER env var, falling back to passed llm_key, then "mock"
+        resolved_llm_key = os.getenv("LLM_PROVIDER", llm_key or "mock")
         self.llm = TargetLLMProxy()
         self.vector_store = vector_store_registry.get(vector_store_key)
 
