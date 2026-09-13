@@ -1,4 +1,5 @@
 """CAD/DXF parser plugin."""
+import io
 from typing import Dict, Any, Optional
 from core.registry import register_parser, BaseParser
 from core.schema import UnifiedDocument, make_doc_id
@@ -25,7 +26,7 @@ class CADParser(BaseParser):
             try:
                 # Read string stream from content bytes
                 text_content = content_bytes.decode("utf-8", errors="ignore")
-                doc = ezdxf.readstring(text_content)
+                doc = ezdxf.read(io.StringIO(text_content))
                 msp = doc.modelspace()
                 
                 # Extract text elements (TEXT, MTEXT) and block-insert tags

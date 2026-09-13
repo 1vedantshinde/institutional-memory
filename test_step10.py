@@ -49,7 +49,7 @@ def run_tests():
     mapped = map_citations(simulated_resp_citations, chunks)
     print(f"-> Mapped citations count: {len(mapped)}")
     for m in mapped:
-        print(f"  * Cited Chunk ID: {m['chunk_index']} from doc {m['doc_id']}")
+        print(f"  * Cited Chunk ID: {m['chunk_id']} from doc {m['doc_id']}")
         
     print("\n" + "=" * 60)
     print(" ALL STEP 10 FUNCTIONALITY COMPLETED & VERIFIED SUCCESSFULLY! ")

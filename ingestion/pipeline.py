@@ -7,6 +7,7 @@ from typing import List, Dict, Any, Optional
 from core.registry import get_parser, embedder_registry, vector_store_registry, graph_store_registry
 from core.schema import UnifiedDocument, Chunk, Node, Edge
 from ingestion.chunker import chunk_document
+from knowledge.ner import extract_entities_and_relations
 
 class IngestionPipeline:
     """Format-agnostic pipeline managing the ingestion flow:
@@ -72,6 +73,17 @@ class IngestionPipeline:
             chunk.embedding = emb
             
         self.vector_store.insert_chunks(chunks)
+
+        # 6. Extract entities/relations from raw text and populate the graph
+        try:
+            nodes, edges = extract_entities_and_relations(doc.raw_content)
+            if nodes or edges:
+                self.graph_store.insert_nodes(nodes)
+                self.graph_store.insert_edges(edges)
+                print(f"[Pipeline] Auto-extracted {len(nodes)} nodes and {len(edges)} edges from '{filename}'")
+        except Exception as e:
+            print(f"[Pipeline] Warning: entity extraction failed for '{filename}': {e}")
+
         return chunks
 
 

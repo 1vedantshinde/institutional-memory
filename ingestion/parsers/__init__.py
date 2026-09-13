@@ -2,10 +2,11 @@
 from ingestion.parsers.pdf_parser import PDFParser
 from ingestion.parsers.cad_parser import CADParser
 from ingestion.parsers.email_parser import EmailParser
+from ingestion.parsers.code_parser import PythonParser
 
-# We list them to make them available directly from ingestion.parsers
 __all__ = [
     "PDFParser",
     "CADParser",
-    "EmailParser"
+    "EmailParser",
+    "PythonParser"
 ]

@@ -66,16 +66,27 @@ def embed(text: str, model: str = "default") -> List[float]:
 
 # Bridge adapter pattern to maintain compatibility with OO pipeline references
 @embedder_registry.register("mock")
-@embedder_registry.register("pluggable")
 @embedder_registry.register("deterministic")
+class DeterministicEmbedder(BaseEmbedder):
+    """Always uses MD5-seeded deterministic vectors — safe for offline/test runs."""
+
+    def embed_query(self, text: str) -> List[float]:
+        return get_deterministic_vector(text)
+
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        return [get_deterministic_vector(t) for t in texts]
+
+
+@embedder_registry.register("pluggable")
+@embedder_registry.register("default")
 class PluggableEmbedder(BaseEmbedder):
-    """OO Interface wrapping the pluggable functional embedder."""
-    
+    """OO Interface wrapping the pluggable functional embedder (neural when available)."""
+
     def __init__(self, model_key: str = "default"):
         self.model_key = model_key
-        
+
     def embed_query(self, text: str) -> List[float]:
         return embed(text, model=self.model_key)
-        
+
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
         return [embed(t, model=self.model_key) for t in texts]

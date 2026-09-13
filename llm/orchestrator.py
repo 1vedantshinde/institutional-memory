@@ -22,10 +22,6 @@ def score_confidence(response: str, context_chunks: List[Chunk]) -> float:
     if not context_chunks or not response:
         return 0.0
 
-    # High default score for simulated/mock answers
-    if "[mock llm response]" in response.lower():
-        return 0.95
-
     # Tokenize response words (alphanumeric, length >= 3)
     response_words = set(w.lower() for w in re.findall(r'\b\w+\b', response) if len(w) >= 3)
     if not response_words:
@@ -62,15 +58,9 @@ def map_citations(response: str, context_chunks: List[Chunk]) -> List[Dict[str, 
         cited = False
         chunk_id = chunk.chunk_id
 
-        # Check explicit regex match or exact tag substring match
-        if chunk_id in explicit_tags or f"[{chunk_id}]" in response or chunk_id.lower() in response_lower:
+        # Only trust explicit [chunk_id] bracket citations from the LLM
+        if chunk_id in explicit_tags or f"[{chunk_id}]" in response:
             cited = True
-        else:
-            # Fallback: Key-term overlap check
-            chunk_keywords = set(w.lower() for w in re.findall(r'\b\w+\b', chunk.text) if len(w) >= 4)
-            resp_keywords = set(w.lower() for w in re.findall(r'\b\w+\b', response) if len(w) >= 4)
-            if chunk_keywords and len(chunk_keywords.intersection(resp_keywords)) >= 2:
-                cited = True
 
         if cited:
             snippet_text = chunk.text[:150] + "..." if len(chunk.text) > 150 else chunk.text

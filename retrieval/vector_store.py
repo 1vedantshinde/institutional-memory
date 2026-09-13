@@ -100,8 +100,10 @@ class InMemoryVectorStore(BaseVectorStore):
         """Performs cosine lookups using query vector and filters."""
         limit_val = k if k is not None else top_k
         active_filters = filters if filters is not None else metadata_filter
-        
-        points = self.client.search(query_vector, limit=limit_val)
+
+        # Search wider than the requested limit so post-search filtering doesn't starve results
+        search_limit = limit_val * 5 if active_filters else limit_val
+        points = self.client.search(query_vector, limit=search_limit)
         chunks = []
         for pt in points:
             payload = pt["payload"]
@@ -123,4 +125,7 @@ class InMemoryVectorStore(BaseVectorStore):
                 embedding=pt["vector"],
                 metadata={k_meta: v_meta for k_meta, v_meta in payload.items() if k_meta not in ["text", "doc_id"]}
             ))
+            if len(chunks) >= limit_val:
+                break
         return chunks
+

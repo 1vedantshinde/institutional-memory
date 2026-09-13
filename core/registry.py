@@ -167,26 +167,29 @@ llm_registry: Registry[Type[BaseLLM]] = Registry("LLM")
 
 @graph_store_registry.register("in_memory")
 class InMemoryGraphStore(BaseGraphStore):
-    """A light in-memory Graph Store for testing ontology validation."""
-    
-    def __init__(self):
-        self.nodes: Dict[str, Node] = {}
-        self.edges: List[Edge] = []
-        
+    """Delegates to the shared Neo4jSimulationDriver singleton so ingestion-time
+    graph writes are visible to query-time graph_augment() reads."""
+
+    @property
+    def nodes(self):
+        from knowledge.graph_store import neo4j
+        return neo4j.nodes
+
     def insert_nodes(self, nodes: List[Node]) -> None:
+        from knowledge.graph_store import write_entity
         for node in nodes:
-            # Automatic validation triggers during model construction
-            self.nodes[node.id] = node
+            write_entity(node)
         print(f"[InMemoryGraphStore] Inserted {len(nodes)} nodes successfully.")
-        
+
     def insert_edges(self, edges: List[Edge]) -> None:
+        from knowledge.graph_store import neo4j
         for edge in edges:
-            self.edges.append(edge)
+            neo4j.merge_edge(edge.source_id, edge.target_id, type=edge.type)
         print(f"[InMemoryGraphStore] Inserted {len(edges)} edges successfully.")
-        
+
     def query(self, query_str: str, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
-        print(f"[InMemoryGraphStore] Query: {query_str} with {params}")
-        return []
+        from knowledge.graph_store import neo4j
+        return neo4j.query(query_str, params) if hasattr(neo4j, "query") else []
 
 
 @llm_registry.register("mock")
