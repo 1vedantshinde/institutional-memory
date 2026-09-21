@@ -6,8 +6,10 @@ LLM response generation, confidence scoring, and citation mapping.
 import re
 from typing import List, Dict, Any, Optional
 from core.registry import llm_registry, vector_store_registry, embedder_registry
-from core.schema import Chunk
-from llm.prompt_builder import build_system_prompt, build_prompt
+from core.schema import Chunk, Condition, Finding
+from knowledge.graph_store import GraphEdge, Neo4jSimulationDriver
+from knowledge.ontology import recording_node_id, window_node_id
+from llm.prompt_builder import build_daq_explanation_prompt, build_system_prompt, build_prompt
 from retrieval.retriever import hybrid_retrieve, graph_augment
 
 # Default Confidence Threshold
@@ -184,3 +186,79 @@ class RAGOrchestrator:
             "confidence": confidence,
             "system_prompt": system_prompt
         }
+
+
+class DAQExplanationError(ValueError):
+    """DAQ explanation inputs lack sufficient traceable computed evidence."""
+
+
+class DAQExplanationOrchestrator:
+    """Explain retrieved DAQ findings; never ask an LLM to perform signal math."""
+
+    def __init__(self, llm_provider: Any, graph_driver: Neo4jSimulationDriver):
+        self.llm = llm_provider
+        self.graph_driver = graph_driver
+
+    @staticmethod
+    def _assert_traceable_evidence(findings: List[Finding]) -> None:
+        """Gate generation on the required raw-data citation fields.
+
+        This is the generation-side integrity rule: absent computed evidence,
+        no LLM call is permitted, so it cannot fabricate missing numbers.
+        """
+        for finding in findings:
+            evidence = finding.evidence
+            required = {"recording_id", "source_path", "channel", "window_id", "sample_range"}
+            missing = [field for field in required if field not in evidence]
+            if missing:
+                raise DAQExplanationError(
+                    f"finding_missing_traceable_evidence:{finding.finding_id}:{','.join(sorted(missing))}"
+                )
+            sample_range = evidence["sample_range"]
+            if not isinstance(sample_range, dict) or not {"sample_start", "sample_end"} <= set(sample_range):
+                raise DAQExplanationError(
+                    f"finding_missing_sample_range:{finding.finding_id}"
+                )
+
+    def explain(
+        self,
+        request: str,
+        findings: List[Finding],
+        conditions: Dict[str, Condition],
+    ) -> Dict[str, Any]:
+        """Build an evidence-only prompt, call the LLM, and return fixed citations."""
+        if not findings:
+            raise DAQExplanationError("no_retrieved_findings_to_explain")
+        self._assert_traceable_evidence(findings)
+        graph_context: list[GraphEdge] = []
+        seen_edges: set[tuple[str, str, str, str]] = set()
+        for finding in findings:
+            for node_id in (
+                recording_node_id(finding.recording_id),
+                window_node_id(finding.window_id or ""),
+            ):
+                for edge in self.graph_driver.get_neighbors(node_id):
+                    edge_key = (edge.source, edge.target, edge.type, repr(edge.properties))
+                    if edge_key not in seen_edges:
+                        graph_context.append(edge)
+                        seen_edges.add(edge_key)
+        prompt = build_daq_explanation_prompt(request, findings, conditions, graph_context)
+        # The prompt is evidence-only and contains an explicit no-computation instruction.
+        assert "Do not calculate, estimate, derive, or invent statistics" in prompt
+        response = self.llm.generate(prompt, system_prompt=DAQ_EXPLANATION_SYSTEM_PROMPT)
+        return {
+            "answer": response,
+            "prompt": prompt,
+            "findings": findings,
+            "citations": [
+                {"finding_id": finding.finding_id, **finding.evidence}
+                for finding in findings
+            ],
+            "graph_context": graph_context,
+        }
+
+
+DAQ_EXPLANATION_SYSTEM_PROMPT = (
+    "Explain supplied DAQ findings only. Never compute or infer numeric results; "
+    "cite the supplied recording path, channel, and range."
+)

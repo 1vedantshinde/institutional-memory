@@ -162,6 +162,69 @@ def hybrid_retrieve(query: str, top_k: int = 8) -> List[Chunk]:
 
 import re
 
+# DAQ retrieval is intentionally separate from the legacy document-RAG helpers
+# above: it fuses exact experimental metadata and numeric feature proximity.
+from dataclasses import dataclass
+from typing import Mapping, Sequence
+
+from knowledge.graph_store import GraphEdge, Neo4jSimulationDriver
+from knowledge.ontology import recording_node_id, window_node_id
+from retrieval.feature_store import FeatureSimilarityHit, FeatureStore
+from retrieval.metadata_index import IndexedWindow, MetadataIndex
+
+
+@dataclass(frozen=True)
+class DAQRetrievalResult:
+    """A feature match with structured metadata and typed provenance context."""
+
+    window: IndexedWindow
+    similarity_score: float
+    graph_context: list[GraphEdge]
+
+
+class DAQRetriever:
+    """Fuse exact metadata → feature similarity → provenance graph context."""
+
+    def __init__(
+        self,
+        metadata_index: MetadataIndex,
+        feature_store: FeatureStore,
+        graph_driver: Neo4jSimulationDriver,
+    ) -> None:
+        self.metadata_index = metadata_index
+        self.feature_store = feature_store
+        self.graph_driver = graph_driver
+
+    def query(
+        self,
+        query_vector: Sequence[float],
+        *,
+        filters: Mapping[str, object] | None = None,
+        top_k: int = 5,
+        metric: str = "cosine",
+    ) -> list[DAQRetrievalResult]:
+        """Narrow candidates exactly, then rank numeric evidence and graph-link it."""
+        candidates = self.metadata_index.filter(**dict(filters or {}))
+        candidate_ids = {candidate.window.window_id for candidate in candidates}
+        hits = self.feature_store.similarity_search(
+            query_vector,
+            top_k=top_k,
+            candidate_window_ids=candidate_ids,
+            metric=metric,
+        )
+        return [self._result_for_hit(hit) for hit in hits]
+
+    def _result_for_hit(self, hit: FeatureSimilarityHit) -> DAQRetrievalResult:
+        indexed = self.metadata_index.get(hit.window.window_id)
+        graph_context = self.graph_driver.get_neighbors(
+            recording_node_id(indexed.recording.recording_id)
+        ) + self.graph_driver.get_neighbors(window_node_id(indexed.window.window_id))
+        return DAQRetrievalResult(
+            window=indexed,
+            similarity_score=hit.score,
+            graph_context=graph_context,
+        )
+
 def extract_entity_mentions(query: str) -> List[str]:
     """Locates Knowledge Graph nodes in user query using case/whitespace/punctuation normalized matches."""
     from knowledge.graph_store import neo4j

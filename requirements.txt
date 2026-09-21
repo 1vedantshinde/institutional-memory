@@ -4,3 +4,4 @@ typing-extensions
 fastapi
 uvicorn
 python-multipart
+numpy

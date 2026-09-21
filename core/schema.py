@@ -4,7 +4,7 @@ UnifiedDocument, Chunk, Node, and Edge are the stable contracts for the pipeline
 """
 import uuid
 import hashlib
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Literal, Optional
 from pydantic import BaseModel, Field, model_validator
 
 def _get_domain():
@@ -33,6 +33,54 @@ class Chunk(BaseModel):
     text: str
     embedding: Optional[List[float]] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class Recording(BaseModel):
+    """Metadata and quality status for one source DAQ CSV recording."""
+
+    recording_id: str
+    condition_id: str
+    source_path: str
+    checksum: str
+    schema_status: Literal["canonical", "quarantined"]
+    row_count: Optional[int] = None
+    channel_names: List[str] = Field(default_factory=list)
+    quality_issues: List[str] = Field(default_factory=list)
+
+
+class Condition(BaseModel):
+    """The S/F/D experimental setting under which recordings were captured."""
+
+    condition_id: str
+    S: float
+    F: float
+    D: float
+    source_folder: str
+
+
+class SignalWindow(BaseModel):
+    """One channel-specific, sample-indexed window from a DAQ recording."""
+
+    window_id: str
+    recording_id: str
+    channel: str
+    sample_start: int
+    sample_end: int
+    time_start: Optional[float] = None
+    time_end: Optional[float] = None
+    feature_vector: Optional[List[float]] = None
+
+
+class Finding(BaseModel):
+    """A traceable analytics result, never a raw-model assertion."""
+
+    finding_id: str
+    recording_id: str
+    window_id: Optional[str] = None
+    finding_type: Literal["anomaly", "condition_deviation", "quality_flag"]
+    score: float
+    evidence: Dict[str, Any]
+    model_version: str
 
 class Node(BaseModel):
     """Graph Entity Node representation.
@@ -85,4 +133,3 @@ class Edge(BaseModel):
                 f"Invalid relation type '{self.type}'. Must be one of configured relation types: {valid_relations}"
             )
         return self
-

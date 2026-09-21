@@ -1,0 +1,52 @@
+"""Integration tests for DAQ API inventory, analysis, retrieval, and config routes."""
+
+from __future__ import annotations
+
+import csv
+from pathlib import Path
+
+from fastapi.testclient import TestClient
+
+from api.main import app
+from ingestion.quality import CANONICAL_COLUMNS
+
+
+def _write_csv(path: Path, multiplier: float) -> None:
+    with path.open("w", encoding="utf-8", newline="") as output:
+        writer = csv.writer(output)
+        writer.writerow(CANONICAL_COLUMNS)
+        writer.writerow([0.0, 1 * multiplier, 2, 3, 4, 5, 6])
+        writer.writerow([0.1, 2 * multiplier, 3, 4, 5, 6, 7])
+
+
+def test_daq_api_exposes_ingest_profile_analyse_and_evidence_query(tmp_path: Path) -> None:
+    config = tmp_path / "domain.yaml"
+    config.write_text(
+        "recording_folder_pattern: '^(?P<condition_id>\\d+)_S(?P<S>\\d+)_F(?P<F>\\d+)_D(?P<D>[\\d.]+)$'\n",
+        encoding="utf-8",
+    )
+    condition = tmp_path / "4_S800_F35_D0.25"
+    condition.mkdir()
+    _write_csv(condition / "Recording 1.csv", 1.0)
+    _write_csv(condition / "Recording 2.csv", 10.0)
+    client = TestClient(app)
+
+    response = client.post("/ingest", json={"folder_path": str(tmp_path), "config_path": str(config)})
+    assert response.status_code == 200
+    assert response.json()["summary"] == {
+        "discovered": 2, "canonical": 2, "quarantined": 0, "quarantined_by_reason": {}
+    }
+    assert client.get("/profile").json() == response.json()["summary"]
+
+    response = client.post("/analyse", json={"condition_id": "4", "window_size_samples": 2, "anomaly_threshold": 0.01})
+    assert response.status_code == 200, response.text
+    assert response.json()["windows"] == 12
+    assert response.json()["findings"] >= 1
+
+    response = client.post("/query", json={"question": "Explain the detected signal deviation.", "filters": {"channel": "Vib_Spindle"}})
+    assert response.status_code == 200, response.text
+    assert response.json()["citations"]
+    citation = response.json()["citations"][0]
+    assert citation["source_path"].endswith(".csv")
+    assert citation["channel"] == "Vib_Spindle"
+    assert "sample_range" in citation
