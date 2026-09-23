@@ -5,6 +5,7 @@ technology-specific implementations (e.g., Qdrant vs custom C++ retrieval,
 or PDF vs CAD parsers).
 """
 from abc import ABC, abstractmethod
+import os
 from typing import Dict, Any, Callable, Type, List, TypeVar, Generic, Optional
 from core.schema import UnifiedDocument, Chunk, Node, Edge
 
@@ -195,3 +196,58 @@ class MockLLM(BaseLLM):
     
     def generate(self, prompt: str, system_prompt: Optional[str] = None) -> str:
         return f"[Mock LLM Response] Answer to query based on prompt size {len(prompt)}"
+
+
+@llm_registry.register("openai")
+class OpenAIResponsesLLM(BaseLLM):
+    """OpenAI Responses API backend for evidence-grounded explanations."""
+
+    def __init__(self, model: Optional[str] = None) -> None:
+        if not os.environ.get("OPENAI_API_KEY"):
+            raise RuntimeError("OPENAI_API_KEY is required when LLM_PROVIDER=openai")
+        try:
+            from openai import OpenAI
+        except ImportError as exc:
+            raise RuntimeError("Install the 'openai' package to use LLM_PROVIDER=openai") from exc
+        self.client = OpenAI()
+        self.model = model or os.environ.get("OPENAI_MODEL", "gpt-6-astra")
+
+    def generate(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+        response = self.client.responses.create(
+            model=self.model,
+            instructions=system_prompt,
+            input=prompt,
+        )
+        output = (response.output_text or "").strip()
+        if not output:
+            raise RuntimeError("OpenAI returned no text output")
+        return output
+
+
+@llm_registry.register("gemini")
+class GeminiLLM(BaseLLM):
+    """Gemini backend using Google's current ``google-genai`` SDK."""
+
+    def __init__(self, model: Optional[str] = None) -> None:
+        if not os.environ.get("GEMINI_API_KEY"):
+            raise RuntimeError("GEMINI_API_KEY is required when LLM_PROVIDER=gemini")
+        try:
+            from google import genai
+            from google.genai import types
+        except ImportError as exc:
+            raise RuntimeError("Install the 'google-genai' package to use LLM_PROVIDER=gemini") from exc
+        self.client = genai.Client()
+        self.types = types
+        self.model = model or os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
+
+    def generate(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+        config = self.types.GenerateContentConfig(system_instruction=system_prompt) if system_prompt else None
+        response = self.client.models.generate_content(
+            model=self.model,
+            contents=prompt,
+            config=config,
+        )
+        output = (response.text or "").strip()
+        if not output:
+            raise RuntimeError("Gemini returned no text output")
+        return output

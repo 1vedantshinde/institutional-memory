@@ -414,3 +414,16 @@ re-windowing or re-training the baseline.
 **Control:** Send `"force": true` in either request to deliberately bypass
 the relevant cache after a source change. Cache files are derived local runtime
 artefacts and are excluded from Git.
+
+## Real LLM provider configuration — 2026-09-23
+
+**Root cause:** `llm/orchestrator.py` instantiated `MockLLM` unconditionally.
+Its response was a test placeholder containing only the prompt size, even when
+the DAQ retrieval, evidence, and prompt were correct.
+
+**Fix:** Added the configurable `OpenAIResponsesLLM` provider. Set
+`LLM_PROVIDER=openai`, `OPENAI_API_KEY`, and optionally `OPENAI_MODEL` before
+starting Uvicorn. The API calls the provider through the Responses API using
+the evidence-only prompt and system instruction. In mock mode, DAQ `/query`
+now returns a clear HTTP 503 configuration error rather than a fabricated
+answer. `.env.example` documents the setup and `.env` remains ignored.

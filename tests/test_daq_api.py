@@ -7,6 +7,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+import api.main as api_main
 from api.main import app
 from ingestion.quality import CANONICAL_COLUMNS
 
@@ -19,7 +20,15 @@ def _write_csv(path: Path, multiplier: float) -> None:
         writer.writerow([0.1, 2 * multiplier, 3, 4, 5, 6, 7])
 
 
-def test_daq_api_exposes_ingest_profile_analyse_and_evidence_query(tmp_path: Path) -> None:
+class EvidenceOnlyTestLLM:
+    """Provider double used to exercise the real-provider API path."""
+
+    def generate(self, prompt: str, system_prompt: str | None = None) -> str:
+        assert "Do not calculate, estimate, derive, or invent statistics" in prompt
+        return "The supplied anomaly findings are cited below."
+
+
+def test_daq_api_exposes_ingest_profile_analyse_and_evidence_query(tmp_path: Path, monkeypatch) -> None:
     config = tmp_path / "domain.yaml"
     config.write_text(
         "recording_folder_pattern: '^(?P<condition_id>\\d+)_S(?P<S>\\d+)_F(?P<F>\\d+)_D(?P<D>[\\d.]+)$'\n",
@@ -29,6 +38,7 @@ def test_daq_api_exposes_ingest_profile_analyse_and_evidence_query(tmp_path: Pat
     condition.mkdir()
     _write_csv(condition / "Recording 1.csv", 1.0)
     _write_csv(condition / "Recording 2.csv", 10.0)
+    monkeypatch.setattr(api_main, "llm", EvidenceOnlyTestLLM())
     client = TestClient(app)
 
     response = client.post("/ingest", json={"folder_path": str(tmp_path), "config_path": str(config), "wait": True})

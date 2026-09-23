@@ -3,8 +3,11 @@
 Decoupled orchestrator handling hybrid retrieval, prompt rendering,
 LLM response generation, confidence scoring, and citation mapping.
 """
+import os
 import re
+from pathlib import Path
 from typing import List, Dict, Any, Optional
+from dotenv import load_dotenv
 from core.registry import llm_registry, vector_store_registry, embedder_registry
 from core.schema import Chunk, Condition, Finding
 from knowledge.graph_store import GraphEdge, Neo4jSimulationDriver
@@ -19,11 +22,22 @@ from knowledge.ontology import (
 from llm.prompt_builder import build_daq_explanation_prompt, build_system_prompt, build_prompt
 from retrieval.retriever import hybrid_retrieve, graph_augment
 
+# Load only the project-local ignored credential file. Environment variables
+# still take precedence, which is appropriate for deployments and CI.
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+
 # Default Confidence Threshold
 CONFIDENCE_THRESHOLD = 0.5
 
-# Global LLM provider instance: swap the targets here to change providers
-llm = llm_registry.get("mock")()
+def _configured_llm() -> Any:
+    """Create the explicitly configured provider; never silently substitute one."""
+    provider = os.environ.get("LLM_PROVIDER", "mock").strip().lower()
+    return llm_registry.get(provider)()
+
+
+# ``mock`` remains the safe default for local tests. Production must set
+# LLM_PROVIDER=openai and OPENAI_API_KEY; the DAQ API rejects mock answers.
+llm = _configured_llm()
 
 
 def score_confidence(response: str, context_chunks: List[Chunk]) -> float:

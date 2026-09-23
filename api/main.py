@@ -569,6 +569,14 @@ def query_endpoint(q: Optional[str] = None, req: Optional[QueryRequest] = None):
         if req and req.question is not None:
             if not daq_state.windows:
                 raise HTTPException(status_code=409, detail="Run POST /analyse before DAQ querying.")
+            if llm.__class__.__name__ == "MockLLM":
+                raise HTTPException(
+                    status_code=503,
+                    detail=(
+                        "A real LLM is not configured. Set LLM_PROVIDER=openai and "
+                        "OPENAI_API_KEY, then restart the API server."
+                    ),
+                )
             if req.feature_vector is not None:
                 assert daq_state.metadata_index is not None and daq_state.feature_store is not None
                 matches = DAQRetriever(
