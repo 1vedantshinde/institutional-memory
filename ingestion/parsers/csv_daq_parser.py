@@ -15,6 +15,7 @@ from typing import Sequence
 from core.schema import Recording
 from ingestion.quality import (
     CANONICAL_COLUMNS,
+    data_rows,
     decode_text,
     has_valid_header,
     is_numeric_row,
@@ -161,7 +162,7 @@ def profile_file(
         source_path=str(source_path.resolve()),
         checksum=checksum,
         schema_status="canonical",
-        row_count=len(rows) - 1,
+        row_count=len(data_rows(rows)),
         channel_names=list(canonical_columns),
         quality_issues=quality_issues,
     )
@@ -207,7 +208,7 @@ def load_full_numeric_array(
         raise NumericArrayLoadError(column_issue)
 
     numeric_rows: list[list[float]] = []
-    for row in rows[1:]:
+    for row in data_rows(rows):
         try:
             numeric_rows.append([float(value) for value in row])
         except ValueError as exc:

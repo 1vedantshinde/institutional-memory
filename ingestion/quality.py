@@ -23,6 +23,7 @@ CANONICAL_COLUMNS = [
     "Z_Load_Cell",
     "Current",
 ]
+CANONICAL_UNIT_ROW = ["Unit", "V", "V", "V", "V", "V", "V"]
 
 # This must execute before any csv.reader is created in the DAQ ingestion path.
 csv.field_size_limit(CSV_FIELD_SIZE_LIMIT)
@@ -60,6 +61,23 @@ def has_valid_header(first_row: list[str], canonical: Sequence[str]) -> bool:
     return first_row == list(canonical)
 
 
+def has_recognized_unit_row(row: list[str]) -> bool:
+    """Recognize the DAQ export's exact units row without treating it as data.
+
+    This is explicit source-format support, not an inferred channel remapping:
+    only the known seven-field ``Unit,V,V,V,V,V,V`` row is skipped.
+    """
+    return row == CANONICAL_UNIT_ROW
+
+
+def data_rows(rows: list[list[str]]) -> list[list[str]]:
+    """Return rows after header and an optional explicitly recognized units row."""
+    if not rows:
+        return []
+    start = 2 if len(rows) > 1 and has_recognized_unit_row(rows[1]) else 1
+    return rows[start:]
+
+
 def validate_columns(rows: list[list[str]], expected_count: int) -> str | None:
     """Ensure every parsed row has the configured canonical column count."""
     if not rows:
@@ -72,7 +90,7 @@ def validate_columns(rows: list[list[str]], expected_count: int) -> str | None:
 
 def validate_numeric(rows: list[list[str]]) -> str | None:
     """Sample up to five data rows; the parser's later full pass checks all rows."""
-    for row in rows[1:6]:
+    for row in data_rows(rows)[:5]:
         for value in row:
             try:
                 float(value)

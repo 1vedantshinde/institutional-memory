@@ -32,6 +32,14 @@ class DomainConfig(BaseModel):
         "Answer only using the provided context. Cite sources for every claim.\n"
         "If the context is insufficient, say so — never invent information."
     )
+    recording_folder_pattern: str = ""
+    canonical_columns: List[str] = Field(default_factory=list)
+    expected_column_count: Optional[int] = None
+    csv_parser: Dict[str, Any] = Field(default_factory=dict)
+    quality_policy: Dict[str, Any] = Field(default_factory=dict)
+    sampling: Dict[str, Any] = Field(default_factory=dict)
+    windowing: Dict[str, Any] = Field(default_factory=dict)
+    feature_set: Dict[str, Any] = Field(default_factory=dict)
 
 def get_project_root() -> Path:
     """Helper to locate the project root directory."""
@@ -80,4 +88,3 @@ def reload_domain_config(path: Optional[str] = None) -> None:
     """Reloads the active domain configuration from path."""
     global DOMAIN
     DOMAIN = load_domain_config(path)
-

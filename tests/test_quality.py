@@ -14,6 +14,8 @@ from ingestion.quality import (
     CANONICAL_COLUMNS,
     CSV_FIELD_SIZE_LIMIT,
     decode_text,
+    data_rows,
+    has_recognized_unit_row,
     has_valid_header,
     sanitize_null_bytes,
     validate_columns,
@@ -85,6 +87,18 @@ def test_quality_helpers_are_independent() -> None:
     assert validate_columns([], 7) == "empty_file"
     assert validate_columns([["1", "2"]], 7) == "column_count_mismatch:2"
     assert validate_numeric([CANONICAL_COLUMNS, ["bad"] * 7]) == "non_numeric_signal_value"
+
+
+def test_recognized_daq_unit_row_is_metadata_not_a_non_numeric_signal_row(tmp_path: Path) -> None:
+    source = tmp_path / "Recording 1.csv"
+    _write_csv(source, [CANONICAL_COLUMNS, ["Unit", "V", "V", "V", "V", "V", "V"], ["0", "1", "2", "3", "4", "5", "6"]])
+
+    record = _profile(source, tmp_path / "quarantine.jsonl")
+
+    assert has_recognized_unit_row(["Unit", "V", "V", "V", "V", "V", "V"])
+    assert data_rows([CANONICAL_COLUMNS, ["Unit", "V", "V", "V", "V", "V", "V"], ["0", "1", "2", "3", "4", "5", "6"]]) == [["0", "1", "2", "3", "4", "5", "6"]]
+    assert record.schema_status == "canonical"
+    assert record.row_count == 1
 
 
 def test_oversized_field_is_read_after_field_limit_is_raised(tmp_path: Path) -> None:

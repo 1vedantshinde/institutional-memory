@@ -24,7 +24,10 @@ ENV/
 # Runtime DAQ artifacts: source data must be mounted or provided separately.
 data/
 datasets/
+dataset/
 quarantine/quarantine_log.jsonl
+artifacts/
+runtime/daq_cache/
 
 # Local API uploads, except the committed test fixture
 uploads/*

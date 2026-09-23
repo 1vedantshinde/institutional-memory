@@ -8,7 +8,14 @@ from typing import List, Dict, Any, Optional
 from core.registry import llm_registry, vector_store_registry, embedder_registry
 from core.schema import Chunk, Condition, Finding
 from knowledge.graph_store import GraphEdge, Neo4jSimulationDriver
-from knowledge.ontology import recording_node_id, window_node_id
+from knowledge.ontology import (
+    CAPTURED_UNDER,
+    EXHIBITS_PATTERN,
+    HAS_WINDOW,
+    SIMILAR_TO,
+    recording_node_id,
+    window_node_id,
+)
 from llm.prompt_builder import build_daq_explanation_prompt, build_system_prompt, build_prompt
 from retrieval.retriever import hybrid_retrieve, graph_augment
 
@@ -233,15 +240,26 @@ class DAQExplanationOrchestrator:
         graph_context: list[GraphEdge] = []
         seen_edges: set[tuple[str, str, str, str]] = set()
         for finding in findings:
-            for node_id in (
-                recording_node_id(finding.recording_id),
-                window_node_id(finding.window_id or ""),
-            ):
-                for edge in self.graph_driver.get_neighbors(node_id):
-                    edge_key = (edge.source, edge.target, edge.type, repr(edge.properties))
-                    if edge_key not in seen_edges:
-                        graph_context.append(edge)
-                        seen_edges.add(edge_key)
+            recording_id = recording_node_id(finding.recording_id)
+            window_id = window_node_id(finding.window_id or "")
+            # A Recording can have tens of thousands of HAS_WINDOW edges. Only
+            # retain its condition lineage; the cited window gets its own exact
+            # HAS_WINDOW/EXHIBITS_PATTERN/SIMILAR_TO context below.
+            relevant_edges = [
+                edge
+                for edge in self.graph_driver.get_neighbors(recording_id)
+                if edge.type == CAPTURED_UNDER
+            ]
+            relevant_edges.extend(
+                edge
+                for edge in self.graph_driver.get_neighbors(window_id)
+                if edge.type in {HAS_WINDOW, EXHIBITS_PATTERN, SIMILAR_TO}
+            )
+            for edge in relevant_edges:
+                edge_key = (edge.source, edge.target, edge.type, repr(edge.properties))
+                if edge_key not in seen_edges:
+                    graph_context.append(edge)
+                    seen_edges.add(edge_key)
         prompt = build_daq_explanation_prompt(request, findings, conditions, graph_context)
         # The prompt is evidence-only and contains an explicit no-computation instruction.
         assert "Do not calculate, estimate, derive, or invent statistics" in prompt

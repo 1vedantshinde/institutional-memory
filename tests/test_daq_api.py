@@ -31,14 +31,14 @@ def test_daq_api_exposes_ingest_profile_analyse_and_evidence_query(tmp_path: Pat
     _write_csv(condition / "Recording 2.csv", 10.0)
     client = TestClient(app)
 
-    response = client.post("/ingest", json={"folder_path": str(tmp_path), "config_path": str(config)})
+    response = client.post("/ingest", json={"folder_path": str(tmp_path), "config_path": str(config), "wait": True})
     assert response.status_code == 200
     assert response.json()["summary"] == {
         "discovered": 2, "canonical": 2, "quarantined": 0, "quarantined_by_reason": {}
     }
-    assert client.get("/profile").json() == response.json()["summary"]
+    assert client.get("/profile").json() == {"status": "complete", **response.json()["summary"]}
 
-    response = client.post("/analyse", json={"condition_id": "4", "window_size_samples": 2, "anomaly_threshold": 0.01})
+    response = client.post("/analyse", json={"condition_id": "4", "window_size_samples": 2, "anomaly_threshold": 0.01, "wait": True})
     assert response.status_code == 200, response.text
     assert response.json()["windows"] == 12
     assert response.json()["findings"] >= 1
@@ -50,3 +50,44 @@ def test_daq_api_exposes_ingest_profile_analyse_and_evidence_query(tmp_path: Pat
     assert citation["source_path"].endswith(".csv")
     assert citation["channel"] == "Vib_Spindle"
     assert "sample_range" in citation
+
+
+def test_daq_ingest_returns_a_client_error_for_a_missing_dataset() -> None:
+    response = TestClient(app).post("/ingest", json={"folder_path": "does-not-exist"})
+
+    assert response.status_code == 400
+    assert "DAQ dataset directory does not exist" in response.json()["detail"]
+
+
+def test_daq_ingest_starts_background_profile_by_default(tmp_path: Path) -> None:
+    config = tmp_path / "domain.yaml"
+    config.write_text(
+        "recording_folder_pattern: '^(?P<condition_id>\\d+)_S(?P<S>\\d+)_F(?P<F>\\d+)_D(?P<D>[\\d.]+)$'\n",
+        encoding="utf-8",
+    )
+    condition = tmp_path / "1_S800_F20_D0.10"
+    condition.mkdir()
+    _write_csv(condition / "Recording 1.csv", 1.0)
+
+    response = TestClient(app).post("/ingest", json={"folder_path": str(tmp_path), "config_path": str(config)})
+
+    assert response.status_code == 202
+    assert response.json() == {"status": "running", "profile_url": "/profile"}
+
+
+def test_analysis_starts_in_the_background_by_default(tmp_path: Path) -> None:
+    config = tmp_path / "domain.yaml"
+    config.write_text(
+        "recording_folder_pattern: '^(?P<condition_id>\\d+)_S(?P<S>\\d+)_F(?P<F>\\d+)_D(?P<D>[\\d.]+)$'\n",
+        encoding="utf-8",
+    )
+    condition = tmp_path / "1_S800_F20_D0.10"
+    condition.mkdir()
+    _write_csv(condition / "Recording 1.csv", 1.0)
+    client = TestClient(app)
+    assert client.post("/ingest", json={"folder_path": str(tmp_path), "config_path": str(config), "wait": True}).status_code == 200
+
+    response = client.post("/analyse", json={"condition_id": "1", "window_size_samples": 2})
+
+    assert response.status_code == 202
+    assert response.json() == {"status": "running", "analysis_status_url": "/analyse/status"}

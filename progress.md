@@ -321,3 +321,96 @@ python3 -m pytest -q tests/test_manifest.py tests/test_quality.py
 
 Provide `DAQ_EXCEPTION_EXPECTATIONS_JSON` as a JSON map of exact relative paths
 to expected reason lists to activate the real-file quarantine assertions.
+
+## Step 13 — Real DAQ corpus and supervised tool-wear model
+
+**Status:** In progress — real data schema verified; full-corpus train/evaluate running next.
+
+**What:** The supplied `Readngs_DAQ_Data` corpus contains 25 discovered
+conditions and exactly 822 recordings (about 41 GB). The supplied
+`Tool_Wear_Value_Table.xlsx` has 25 case columns keyed by condition ID and run
+number, with 824 numeric labels (labels beyond an available recording are
+ignored). Added a recording-level supervised tool-wear regressor whose inputs
+are computed DAQ diagnostics plus S/F/D—not spreadsheet text.
+
+**How:** The parser now recognizes only the dataset's exact
+`Unit,V,V,V,V,V,V` second row as explicit export metadata, skips it during
+numeric validation/loading, and still rejects all other invalid headers/rows.
+`analytics/tool_wear.py` joins a label only by `(condition_id, Recording N)`,
+derives rate-independent per-channel features from evenly distributed signal
+samples, and trains a HistGradientBoostingRegressor with whole-recording
+train/test separation. `train_tool_wear_model.py` writes a local model and an
+evaluation JSON report under ignored `artifacts/tool_wear/`.
+
+**Why:** The workbook gives a supervised target (tool wear in µm); it does not
+replace DAQ signal evidence. Matching on the explicit condition/run keys makes
+the target linkage auditable and prevents hidden label inference.
+
+## API path correction — 2026-09-23
+
+**Status:** Complete.
+
+**Root cause:** The DAQ corpus was moved under `dataset/Readngs_DAQ_Data`, but
+the API request used the old root-relative `Readngs_DAQ_Data` path. The old
+handler converted that client path mistake into a generic 500 response.
+
+**Fix:** `POST /ingest` now resolves an explicit directory, the project-relative
+directory, or the project-local `dataset/<name>` mount. Invalid dataset/config
+paths return HTTP 400 with the exact expected path. API tests cover this error
+case.
+
+## API responsiveness correction — 2026-09-23
+
+**Root cause:** Synchronous ingestion read the entire 41 GB corpus and then
+re-read every canonical file for full numeric loading. While that request was
+running, the single API worker could not answer `/profile`, which looked like
+the API returned nothing.
+
+**Fix:** JSON `POST /ingest` now starts a background, profile-only pass and
+returns HTTP 202 immediately. `GET /profile` reports `running`, `complete`, or
+an explicit failure. Full numeric loading remains mandatory for `POST /analyse`
+and therefore happens only for the requested condition/recording. Add
+`"wait": true` only for small fixture data or a terminal job where a blocking
+response is desired.
+
+## API analysis responsiveness correction — 2026-09-23
+
+**Root cause:** Condition-level windowing and feature extraction can involve
+many large recordings and thousands of windows. The synchronous `/analyse`
+request left Curl waiting with no response even though the server was working.
+
+**Fix:** `POST /analyse` now returns HTTP 202 immediately and performs the
+work in a background job. Poll `GET /analyse/status` for `running`, `complete`,
+or an explicit error. Use `"wait": true` only for small test requests.
+
+## Explanation response-size correction — 2026-09-23
+
+**Root cause:** A cited recording's graph neighborhood includes every one of
+its `HAS_WINDOW` edges. Returning that whole neighborhood in a query response
+produced a very large JSON dump rather than a concise explanation.
+
+**Fix:** The LLM explanation path now includes only the recording's
+`CAPTURED_UNDER` condition lineage and the cited window's exact `HAS_WINDOW`,
+`EXHIBITS_PATTERN`, and optional `SIMILAR_TO` edges. This preserves provenance
+while keeping a chatbot response bounded and useful.
+
+## Persistent DAQ ingest and analysis cache — 2026-09-23
+
+**Why:** The 822-recording corpus is expensive to profile and analyse. The
+per-condition baseline is the fitted reference used by the unsupervised
+Mahalanobis detector, so users should not need to rebuild it merely because the
+API server restarts.
+
+**What:** `POST /ingest` now fingerprints the discovered manifest (absolute
+paths, file byte sizes, modification times, and config content) and persists
+the profile result under `runtime/daq_cache/`. A matching later ingest restores
+the canonical/quarantined `Recording` inventory without re-reading all CSV
+contents. `POST /analyse` persists the computed windows, feature vectors,
+per-condition baselines, and traceable `Finding` objects keyed by dataset
+fingerprint and analysis settings. On a matching request it restores those
+facts and rebuilds the in-memory feature index and provenance graph, without
+re-windowing or re-training the baseline.
+
+**Control:** Send `"force": true` in either request to deliberately bypass
+the relevant cache after a source change. Cache files are derived local runtime
+artefacts and are excluded from Git.

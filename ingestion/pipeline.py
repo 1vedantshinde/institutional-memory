@@ -73,15 +73,22 @@ def ingest_daq_dataset(
     config_path: str = "config/domain.yaml",
     quarantine_log_path: str = str(DEFAULT_QUARANTINE_LOG),
     windowing_handler: Optional[WindowingHandler] = None,
+    validate_full_numeric: bool = True,
+    manifest: Optional[list[dict[str, Any]]] = None,
 ) -> DAQIngestionRun:
-    """Run manifest → profile → full numeric load → optional windowing handoff.
+    """Run manifest → profile → optional full numeric load → windowing handoff.
 
+    ``validate_full_numeric=False`` is intended for a fast, run-level profile:
+    it avoids reading every canonical source twice. Full numeric validation is
+    still required before any analysis/windowing and remains enabled by default.
     ``windowing_handler`` is the integration boundary for the future
     ``signal/windowing.py`` implementation.  It is called only after a complete
     numeric load succeeds; a missing handler still performs the full quality
     load but deliberately performs no feature or window computation.
     """
-    manifest = discover_manifest(dataset_root, config_path=config_path)
+    # Supplying a previously discovered manifest lets API-level caching check
+    # for source changes without walking the same 822-file tree a second time.
+    manifest = manifest if manifest is not None else discover_manifest(dataset_root, config_path=config_path)
     recordings: list[Recording] = []
     windowing_outputs: list[Any] = []
     quarantined_by_reason: Counter[str] = Counter()
@@ -98,12 +105,13 @@ def ingest_daq_dataset(
             quarantined_by_reason.update(_quarantine_reasons(recording))
             continue
 
+        if not validate_full_numeric:
+            continue
+
         try:
             numeric_array = load_full_numeric_array(recording)
         except NumericArrayLoadError as exc:
-            _quarantine_after_full_load(
-                recording, str(exc), quarantine_log_path
-            )
+            _quarantine_after_full_load(recording, str(exc), quarantine_log_path)
             quarantined_by_reason.update([str(exc)])
             continue
 

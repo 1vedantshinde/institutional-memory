@@ -6,7 +6,7 @@ import pytest
 
 from core.schema import Condition, Finding, Recording, SignalWindow
 from knowledge.graph_store import Neo4jSimulationDriver
-from knowledge.ontology import populate_provenance_graph
+from knowledge.ontology import CAPTURED_UNDER, EXHIBITS_PATTERN, HAS_WINDOW, populate_provenance_graph
 from llm.orchestrator import DAQExplanationError, DAQExplanationOrchestrator
 from llm.prompt_builder import build_daq_explanation_prompt
 
@@ -51,7 +51,8 @@ def test_orchestrator_explains_only_computed_facts_and_returns_fixed_citations()
     assert "Do not calculate, estimate, derive, or invent statistics" in llm.prompt
     assert "raw signal" not in llm.prompt.lower()
     assert result["citations"] == [{"finding_id": "finding-1", **_evidence()}]
-    assert result["graph_context"]
+    assert {edge.type for edge in result["graph_context"]} == {CAPTURED_UNDER, HAS_WINDOW, EXHIBITS_PATTERN}
+    assert len(result["graph_context"]) == 3
 
 
 def test_orchestrator_refuses_to_call_llm_without_a_path_channel_and_range() -> None:
