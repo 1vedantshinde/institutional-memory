@@ -280,17 +280,24 @@ class DAQExplanationOrchestrator:
         response = self.llm.generate(prompt, system_prompt=DAQ_EXPLANATION_SYSTEM_PROMPT)
         return {
             "answer": response,
-            "prompt": prompt,
-            "findings": findings,
             "citations": [
-                {"finding_id": finding.finding_id, **finding.evidence}
-                for finding in findings
+                {
+                    "label": f"Finding {number}",
+                    "finding_id": finding.finding_id,
+                    "model_version": finding.model_version,
+                    "source_path": finding.evidence["source_path"],
+                    "channel": finding.evidence["channel"],
+                    "window_id": finding.evidence["window_id"],
+                    "sample_range": finding.evidence["sample_range"],
+                    "time_range": finding.evidence.get("time_range"),
+                }
+                for number, finding in enumerate(findings, start=1)
             ],
-            "graph_context": graph_context,
+            "finding_count": len(findings),
         }
 
 
 DAQ_EXPLANATION_SYSTEM_PROMPT = (
     "Explain supplied DAQ findings only. Never compute or infer numeric results; "
-    "cite the supplied recording path, channel, and range."
+    "cite finding IDs in prose. Full recording path/channel/range remain in structured citations."
 )

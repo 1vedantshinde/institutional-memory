@@ -39,6 +39,7 @@ def window_recording(
     window_size_samples: int = 2048,
     overlap: float = 0.5,
     confirmed_sampling_hz: float | None = None,
+    channels: Sequence[str] | None = None,
 ) -> list[SignalWindow]:
     """Create fixed windows for each non-Time canonical DAQ channel.
 
@@ -69,16 +70,23 @@ def window_recording(
     bounds = fixed_window_bounds(
         len(window_time_values), window_size_samples, overlap
     )
+    selected_channels = list(channels) if channels is not None else list(CANONICAL_COLUMNS[1:])
+    invalid_channels = set(selected_channels) - set(CANONICAL_COLUMNS[1:])
+    if invalid_channels:
+        raise ValueError(f"unsupported_window_channels:{','.join(sorted(invalid_channels))}")
     windows: list[SignalWindow] = []
-    for channel_index, channel_name in enumerate(CANONICAL_COLUMNS[1:], start=1):
-        channel_values = [float(row[channel_index]) for row in numeric_array]
-        prepared = preprocess_channel(channel_values)
+    for channel_name in selected_channels:
+        channel_index = CANONICAL_COLUMNS.index(channel_name)
         if resampling_hz is not None:
+            channel_values = [float(row[channel_index]) for row in numeric_array]
+            prepared = preprocess_channel(channel_values)
             _, window_values = resample_channel(
                 time_values, prepared.values, resampling_hz
             )
         else:
-            window_values = prepared.values
+            # Full-channel preprocessing occurs once in the analysis layer;
+            # window construction here needs only sample/time metadata.
+            window_values = time_values
         if len(window_values) != len(window_time_values):
             raise ValueError("resampled channel does not align with the Time grid")
         for sample_start, sample_end in bounds:

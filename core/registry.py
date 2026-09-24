@@ -6,6 +6,7 @@ or PDF vs CAD parsers).
 """
 from abc import ABC, abstractmethod
 import os
+import time
 from typing import Dict, Any, Callable, Type, List, TypeVar, Generic, Optional
 from core.schema import UnifiedDocument, Chunk, Node, Edge
 
@@ -137,6 +138,10 @@ class UnsupportedFormatError(Exception):
     """Raised when no parser exists for a specific file format."""
     pass
 
+
+class LLMProviderUnavailableError(RuntimeError):
+    """A configured LLM provider could not serve a transient request."""
+
 # Global registry mappings
 PARSER_REGISTRY: Dict[str, Type[BaseParser]] = {}
 
@@ -242,11 +247,30 @@ class GeminiLLM(BaseLLM):
 
     def generate(self, prompt: str, system_prompt: Optional[str] = None) -> str:
         config = self.types.GenerateContentConfig(system_instruction=system_prompt) if system_prompt else None
-        response = self.client.models.generate_content(
-            model=self.model,
-            contents=prompt,
-            config=config,
-        )
+        retries = max(0, int(os.environ.get("GEMINI_MAX_RETRIES", "2")))
+        response = None
+        for attempt in range(retries + 1):
+            try:
+                response = self.client.models.generate_content(
+                    model=self.model,
+                    contents=prompt,
+                    config=config,
+                )
+                break
+            except Exception as exc:
+                status_code = getattr(exc, "code", None)
+                # Gemini uses 429 for temporary quota exhaustion and 5xx for
+                # temporary service/model capacity failures. Never retry an
+                # invalid key, invalid model, or other permanent 4xx error.
+                if status_code not in {429, 500, 502, 503, 504} or attempt == retries:
+                    if status_code in {429, 500, 502, 503, 504}:
+                        raise LLMProviderUnavailableError(
+                            f"Gemini is temporarily unavailable (HTTP {status_code}) after "
+                            f"{attempt + 1} attempt(s). Try again shortly or select another Gemini model."
+                        ) from exc
+                    raise
+                time.sleep(2**attempt)
+        assert response is not None
         output = (response.text or "").strip()
         if not output:
             raise RuntimeError("Gemini returned no text output")

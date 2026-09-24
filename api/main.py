@@ -21,6 +21,7 @@ import retrieval.vector_store
 
 import core.config
 from core.schema import Condition, Finding, Node, Edge, Recording, SignalWindow
+from core.registry import LLMProviderUnavailableError
 from ingestion.manifest import discover_manifest
 from ingestion.pipeline import IngestionPipeline, ingest_daq_dataset
 from ingestion.parsers.csv_daq_parser import load_full_numeric_array
@@ -154,6 +155,7 @@ def _analysis_cache_key(fingerprint: str, request: "AnalyseRequest") -> str:
         "window_size_samples": request.window_size_samples,
         "overlap": request.overlap,
         "anomaly_threshold": request.anomaly_threshold,
+        "channels": sorted(request.channels) if request.channels else None,
         "model_version": MODEL_VERSION,
     }
     return hashlib.sha256(json.dumps(settings, sort_keys=True).encode("utf-8")).hexdigest()
@@ -253,6 +255,7 @@ class QueryRequest(BaseModel):
     limit: Optional[int] = 8
     filters: Optional[Dict[str, Any]] = None
     feature_vector: Optional[List[float]] = None
+    top_k: Optional[int] = None
 
 
 class FolderIngestRequest(BaseModel):
@@ -272,6 +275,7 @@ class AnalyseRequest(BaseModel):
     window_size_samples: int = 2048
     overlap: float = 0.5
     anomaly_threshold: float = 3.0
+    channels: Optional[List[str]] = None
     wait: bool = False
     force: bool = False
 
@@ -431,13 +435,18 @@ def _run_analysis(request: AnalyseRequest) -> dict[str, Any]:
         except SamplingRateError:
             fs = None
         recording_windows = window_recording(
-            recording, numeric_array, window_size_samples=request.window_size_samples, overlap=request.overlap
+            recording, numeric_array, window_size_samples=request.window_size_samples,
+            overlap=request.overlap, channels=request.channels,
         )
         channel_index = {name: index for index, name in enumerate(recording.channel_names)}
+        prepared_channels = {
+            channel: preprocess_channel([row[index] for row in numeric_array]).values
+            for channel, index in channel_index.items()
+            if channel != "Time" and (request.channels is None or channel in request.channels)
+        }
         for window in recording_windows:
-            values = [row[channel_index[window.channel]] for row in numeric_array[window.sample_start:window.sample_end]]
-            prepared = preprocess_channel(values).values
-            extraction = extract_window_features(window, prepared, fs=fs)
+            values = prepared_channels[window.channel][window.sample_start:window.sample_end]
+            extraction = extract_window_features(window, values, fs=fs)
             if feature_names is None:
                 feature_names = extraction.feature_names
             elif extraction.feature_names != feature_names:
@@ -553,6 +562,8 @@ def ingest_folder_endpoint(folder_path: Optional[str] = None, req: Optional[Fold
         return ingest_folder(target_path)
     except HTTPException:
         raise
+    except LLMProviderUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -563,7 +574,7 @@ def query_endpoint(q: Optional[str] = None, req: Optional[QueryRequest] = None):
     query_text = q or (req.question if req else None) or (req.query if req else None) or (req.q if req else None)
     if not query_text:
         raise HTTPException(status_code=400, detail="Query parameter 'q' or body 'query' is required.")
-    limit = req.limit if (req and req.limit) else 8
+    limit = (req.top_k if req and req.question and req.top_k is not None else (req.limit if req and req.limit else 8))
     filters = req.filters if req else None
     try:
         if req and req.question is not None:
@@ -597,6 +608,8 @@ def query_endpoint(q: Optional[str] = None, req: Optional[QueryRequest] = None):
         return orchestrator.query(query_text, limit=limit, filters=filters)
     except HTTPException:
         raise
+    except LLMProviderUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Query failed: {str(e)}")
 

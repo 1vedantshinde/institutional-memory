@@ -68,8 +68,14 @@ def build_user_prompt(query: str, context_chunks: List[Chunk]) -> str:
 DAQ_EXPLANATION_RULES = """You explain already-computed DAQ findings only.
 Do not calculate, estimate, derive, or invent statistics, sampling rates,
 feature values, anomaly scores, or conclusions beyond the supplied evidence.
-Use only the stated facts. Cite every discussed finding as [finding_id] and
-include its recording path, channel, and sample/time range."""
+Use only the stated facts. Cite every discussed finding using its supplied
+short label, such as [Finding 1]. The structured citation payload carries the
+recording path, channel, and sample/time range, so do not repeat file paths in
+the conversational answer unless the user explicitly asks for them.
+Write a short practical summary followed by at most three representative
+findings. Do not repeat every overlapping window unless the user explicitly
+asks for a complete list. Do not print raw feature values, baseline values,
+long IDs, or JSON-like field names; use the supplied plain-language evidence."""
 
 
 def _format_graph_context(edges: List[GraphEdge]) -> str:
@@ -97,23 +103,38 @@ def build_daq_explanation_prompt(
     if not findings:
         raise ValueError("at_least_one_finding_is_required_for_a_daq_explanation")
     rendered_findings: list[str] = []
-    for finding in findings:
+    for number, finding in enumerate(findings, start=1):
         condition = conditions.get(finding.evidence.get("condition_id"))
         condition_text = (
             f"condition_id={condition.condition_id}, S={condition.S}, F={condition.F}, D={condition.D}"
             if condition is not None
             else f"condition_id={finding.evidence.get('condition_id', 'unknown')}"
         )
+        evidence = finding.evidence
+        citation = {
+            "channel": evidence["channel"],
+            "window_id": evidence["window_id"],
+            "sample_range": evidence["sample_range"],
+            "time_range": evidence.get("time_range"),
+        }
+        plain_language = [
+            item["plain_language"]
+            for item in evidence.get("dominant_feature_deviations", [])
+            if "plain_language" in item
+        ]
         rendered_findings.append(
-            f"[{finding.finding_id}]\n"
-            f"type={finding.finding_type}; computed_score={finding.score}; model_version={finding.model_version}\n"
+            f"[Finding {number}]\n"
+            f"type={finding.finding_type}; anomaly threshold exceeded; model={finding.model_version}\n"
             f"condition: {condition_text}\n"
-            f"evidence: {finding.evidence}"
+            f"citation: {citation}\n"
+            f"computed_evidence_in_plain_language: {plain_language}"
         )
     findings_text = "\n\n".join(rendered_findings)
     return f"""{DAQ_EXPLANATION_RULES}
 
 User request: {request}
+
+Retrieved finding count: {len(findings)}
 
 Already-computed findings:
 {findings_text}

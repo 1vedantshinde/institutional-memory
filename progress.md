@@ -427,3 +427,82 @@ starting Uvicorn. The API calls the provider through the Responses API using
 the evidence-only prompt and system instruction. In mock mode, DAQ `/query`
 now returns a clear HTTP 503 configuration error rather than a fabricated
 answer. `.env.example` documents the setup and `.env` remains ignored.
+
+## Gemini transient-capacity handling — 2026-09-24
+
+**Root cause:** Gemini returned HTTP 503 `UNAVAILABLE`, explicitly reporting
+temporary high demand for the selected model. Provider discovery and the API
+key were already successful, as confirmed by `GeminiLLM` loading.
+
+**Fix:** Gemini generation retries only temporary 429/5xx provider responses
+with short exponential backoff (three attempts by default). It never falls
+back to a mock response. If all attempts fail, `/query` reports HTTP 503 with a
+clear retry/model-selection message. `GEMINI_MAX_RETRIES` controls the retry
+count.
+
+## Gemini model selection — 2026-09-24
+
+**What:** Queried the Gemini model catalogue available to the configured key.
+The previous 3.x Flash provider returned repeated temporary 503 high-demand
+errors. `gemini-2.5-flash` then returned a provider migration message that it
+is unavailable to new users and explicitly recommended `gemini-3.6-flash`.
+The local ignored `.env` therefore selects `gemini-3.6-flash` for evidence-only
+DAQ chatbot explanations.
+
+## Concise answers and faster scoped analysis — 2026-09-24
+
+**Root cause:** `/query` exposed internal prompt, full Finding objects,
+baseline recording lists, and graph edges. It also ignored the DAQ `top_k`
+field because the request schema did not retain it. Analysis repeated NaN
+preprocessing for every window and always processed all six non-Time channels.
+
+**Fix:** Public query responses now include only `answer`, a compact citation
+list, and `finding_count`; internal prompt/graph/debug material stays private.
+The prompt has compact citations and asks for a short summary with at most
+three representative windows. `top_k` is honoured. `POST /analyse` accepts an
+optional `channels` list, and preprocessing now runs once per selected channel
+rather than once per window. Example: `"channels":["Vib_Spindle"]` avoids
+analysing the other five channels for a spindle-only question.
+
+## Evidence-content explanations — 2026-09-24
+
+**Root cause:** An anomaly Finding contained a traceable location and a single
+Mahalanobis score, but no analytics-produced indication of which extracted
+features departed most from the same-condition baseline. The LLM could only
+repeat recordings, ranges, and scores.
+
+**Fix:** The detector now records the three largest computed per-feature
+standardized departures (window value and baseline mean) in Finding evidence.
+The prompt supplies these already-computed facts so the chatbot can explain
+what changed, while still never performing signal math. Conversational answers
+cite finding IDs rather than repeating raw CSV paths; compact structured
+citations retain the required provenance. The detector version was increased
+to `mahalanobis-diagonal-v2`, automatically invalidating old analysis cache.
+
+## Natural-language answer formatting — 2026-09-24
+
+**Root cause:** The LLM prompt included raw feature and baseline values, so the
+otherwise valid answer resembled a CSV/JSON diagnostics export rather than a
+readable explanation.
+
+**Fix:** Analytics now produces a plain-language statement for each dominant
+feature departure (for example, low-frequency vibration energy relative to the
+condition baseline). The prompt exposes only these computed statements, short
+labels such as `[Finding 1]`, and concise range metadata. Raw floats, SHA IDs,
+and file paths are omitted from answer prose; the separate compact citations
+retain provenance for audit. Version `mahalanobis-diagonal-v3` forces new
+cached findings with this evidence.
+
+## Frontend automatic chat server — 2026-09-24
+
+**What:** Added `server.py`, a frontend-facing FastAPI entrypoint. `POST /chat`
+deterministically extracts an explicit `condition N` and one canonical signal
+from the user's question, restores exact cached analytics where available, or
+starts the appropriate condition/channel analysis automatically. It then sends
+only computed findings to the existing evidence-only explanation pipeline.
+
+**Why:** Frontend users should ask questions naturally rather than manually
+calling `/ingest` and `/analyse`. New evidence cannot be truthfully answered in
+seconds before signal analytics finishes, so `/chat` returns HTTP 202 while a
+new scope is being prepared; `GET /chat/status` lets the frontend poll and
+resend the question. Subsequent matching cached scopes answer immediately.

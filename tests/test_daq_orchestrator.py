@@ -50,9 +50,16 @@ def test_orchestrator_explains_only_computed_facts_and_returns_fixed_citations()
 
     assert "Do not calculate, estimate, derive, or invent statistics" in llm.prompt
     assert "raw signal" not in llm.prompt.lower()
-    assert result["citations"] == [{"finding_id": "finding-1", **_evidence()}]
-    assert {edge.type for edge in result["graph_context"]} == {CAPTURED_UNDER, HAS_WINDOW, EXHIBITS_PATTERN}
-    assert len(result["graph_context"]) == 3
+    assert result["finding_count"] == 1
+    assert result["citations"] == [{
+        "label": "Finding 1", "finding_id": "finding-1",
+        "model_version": "mahalanobis-diagonal-v1",
+        "source_path": _evidence()["source_path"], "channel": "Vib_Spindle",
+        "window_id": "window-1", "sample_range": {"sample_start": 0, "sample_end": 2048},
+        "time_range": {"time_start": 0.0, "time_end": 20.47},
+    }]
+    assert "baseline_recording_ids" not in llm.prompt
+    assert "CAPTURED_UNDER" in llm.prompt
 
 
 def test_orchestrator_refuses_to_call_llm_without_a_path_channel_and_range() -> None:

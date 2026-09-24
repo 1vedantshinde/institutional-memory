@@ -20,3 +20,25 @@ python3 -m uvicorn api.main:app --reload
 
 Keep the API key out of Git; `.env` is ignored. The official OpenAI SDK reads
 `OPENAI_API_KEY` from the process environment.
+
+## Frontend chatbot server
+
+Start the frontend-facing server with:
+
+```bash
+python3 -m uvicorn server:app --reload
+```
+
+Your frontend sends only a question to `POST /chat`. The server detects an
+explicit condition and signal channel, automatically loads a cached analysis or
+starts scoped analytics, and then returns the evidence-grounded answer. For a
+new scope it returns HTTP 202 with `status: analysing`; poll `GET /chat/status`
+and resend the same question once it returns `analysis_ready`.
+
+```json
+{"question":"What changed in spindle vibration for condition 4?"}
+```
+
+For immediate answers after a server restart, keep the local analysis cache.
+The first request for a never-analysed condition/channel must complete signal
+analytics before an answer is allowed.

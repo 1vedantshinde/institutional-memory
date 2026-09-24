@@ -69,6 +69,10 @@ def test_anomaly_finding_has_full_raw_data_provenance() -> None:
         "time_range": {"time_start": 1.28, "time_end": 21.75},
         "condition_id": "4",
         "baseline_recording_ids": ["4/Recording 1", "4/Recording 2"],
+        "dominant_feature_deviations": [
+            {"feature": "rms", "label": "overall vibration level (RMS)", "window_value": 5.0, "baseline_mean": 0.0, "standardized_deviation": 5.0, "plain_language": "overall vibration level (RMS) was 5.00 standard deviations above the condition baseline"},
+            {"feature": "peak", "label": "peak vibration level", "window_value": 0.0, "baseline_mean": 0.0, "standardized_deviation": 0.0, "plain_language": "peak vibration level was 0.00 standard deviations above the condition baseline"},
+        ],
         "threshold": 3.0,
     }
 
