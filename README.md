@@ -1,426 +1,450 @@
-# Institutional Memory — Industrial Knowledge Intelligence Platform
+# Institutional Memory — DAQ Condition Intelligence
 
-**Institutional Memory** is a decoupled, format-agnostic, zero-hallucination industrial intelligence platform. It bridges high-frequency Data Acquisition (DAQ) physical sensor signals (vibration, load cell, motor current), process settings, condition-aware baseline modeling, unsupervised anomaly detection, and tool-wear regression with evidence-grounded Large Language Model (LLM) explanations.
+Institutional Memory explains unusual behaviour in CNC-machining sensor
+recordings. An operator asks a plain-language question such as *"What changed
+in spindle vibration for condition 4?"* and gets a short answer. Every claim in
+the answer links back to the exact recording, sensor channel and time window it
+came from.
 
----
+The rule the whole design follows: **the AI explains, it never calculates.**
+Every number (sampling rates, features, baselines, anomaly scores) is computed
+by deterministic Python analytics. The language model only turns those
+already-computed findings into readable sentences, and it is told never to
+estimate, derive or invent a value.
 
-## Table of Contents
-
-- [Core Philosophy & Architecture](#core-philosophy--architecture)
-- [Quickstart: How to Start the Project](#quickstart-how-to-start-the-project)
-- [API Key Configuration & Headless Usage](#api-key-configuration--headless-usage)
-  - [1. Setting Up `.env`](#1-setting-up-env)
-  - [2. Interactive Headless Usage via API / cURL](#2-interactive-headless-usage-via-api--curl)
-- [What Results to Expect](#what-results-to-expect)
-  - [1. Quality Gating & Inventory Profiling](#1-quality-gating--inventory-profiling)
-  - [2. Signal Analytics & Baseline Anomaly Detection](#2-signal-analytics--baseline-anomaly-detection)
-  - [3. Evidence-Grounded Conversational Explanations](#3-evidence-grounded-conversational-explanations)
-  - [4. Supervised Tool-Wear Regression](#4-supervised-tool-wear-regression)
-  - [5. Persistent Local Caching](#5-persistent-local-caching)
-- [Repository & Module Structure](#repository--module-structure)
-  - [Directory Tree](#directory-tree)
-  - [Module Responsibilities](#module-responsibilities)
-- [Future Plans & Roadmap](#future-plans--roadmap)
+> For a step-by-step history of how each part was built and verified, see
+> [progress.md](progress.md). For the original architectural blueprint, see
+> [KNOWLEDGE_BASE.md](KNOWLEDGE_BASE.md).
 
 ---
 
-## Core Philosophy & Architecture
+## Contents
 
-Standard LLMs struggle with numerical sensor signals because language models are not deterministic math engines. **Institutional Memory** strictly enforces a **Zero Hallucination / No Signal Math** architecture:
+1. [The problem and the approach](#1-the-problem-and-the-approach)
+2. [How it works, end to end](#2-how-it-works-end-to-end)
+3. [What happens when you ask a question](#3-what-happens-when-you-ask-a-question)
+4. [The web app](#4-the-web-app)
+5. [Getting started](#5-getting-started)
+6. [Configuration](#6-configuration)
+7. [Using the API directly](#7-using-the-api-directly)
+8. [Speed and caching](#8-speed-and-caching)
+9. [Testing](#9-testing)
+10. [Repository map](#10-repository-map)
+11. [Current status, limitations and roadmap](#11-current-status-limitations-and-roadmap)
+12. [Troubleshooting](#12-troubleshooting)
 
-1. **Deterministic Analytics Core**: All raw signal preprocessing (NaN interpolation, $f_s$ calculation), sliding windowing (2048 samples, 50% overlap), feature extraction (time & FFT frequency domains), condition-specific baseline fitting, and Mahalanobis anomaly detection take place in deterministic Python code.
-2. **Traceable Knowledge & Graph Provenance**: Every anomaly generates a strongly typed `Finding` object linked to a `SignalWindow`, a `Recording`, and a process `Condition` $(S, F, D)$ inside an in-memory Graph Store and Vector Feature Store.
-3. **Evidence-Grounded LLM Explanations**: The LLM (OpenAI or Gemini) receives **only** pre-calculated diagnostic statements, condition metadata, and graph context. It is strictly instructed never to derive, estimate, or compute numbers, citing deterministic finding IDs (`[Finding 1]`) backed by structured citations.
+---
+
+## 1. The problem and the approach
+
+A CNC machine was run under **25 process conditions**. Each condition is one
+combination of spindle speed (**S**), feed (**F**) and depth of cut (**D**).
+Each run was captured as a CSV **recording** with seven columns: a time axis
+plus six sensor channels.
+
+| Channel | What it measures |
+|---|---|
+| `Vib_Spindle` | Spindle vibration |
+| `Vib_Table` | Table vibration |
+| `X_Load_Cell`, `Y_Load_Cell`, `Z_Load_Cell` | Cutting force on each axis |
+| `Current` | Motor current |
+
+The full corpus has **822 recordings (about 41 GB)**. A tool-wear
+measurement table gives the actual tool wear (in µm) for each run.
+
+Language models are good at explaining and bad at arithmetic on long numeric
+signals. Asked directly about raw sensor data, they will produce confident
+numbers that were never measured. So the project splits the work:
+
+1. **Deterministic analytics** turn raw signals into traceable *findings*
+   ("this 2,048-sample window of spindle vibration in recording 12 departs
+   from the normal profile for this condition, mainly in low-frequency
+   energy").
+2. **A provenance graph and index** keep every finding linked to its window,
+   recording and condition.
+3. **An evidence-only LLM step** receives only those findings, their
+   plain-language statements and their provenance, and writes the
+   explanation, citing each finding as `[Finding N]`.
+
+A second rule matters just as much: **"normal" is defined per condition.**
+Changing speed, feed or depth legitimately changes vibration, load and
+current. Each condition therefore gets its own baseline, so a different
+setting is never mistaken for a fault.
+
+---
+
+## 2. How it works, end to end
 
 ```
-+------------------------------------------------------------------------------------+
-|                                    DAQ Dataset                                     |
-|                       (25 Conditions, 822 CSV Recordings)                          |
-+------------------------------------------------------------------------------------+
-                                         |
-                                         v
-+------------------------------------------------------------------------------------+
-|                          Ingestion & CSV Quality Gate                              |
-|          (Raw Byte Checksum, NUL Sanitization, Header & Channel Validation)        |
-+------------------------------------------------------------------------------------+
-                                         |
-                                         v
-+------------------------------------------------------------------------------------+
-|                         Signal Processing & Analytics                              |
-|    (fs Extraction, 2048-sample Windowing, Time/FFT Features, Baselines,            |
-|                   Diagonal Mahalanobis Anomaly Detection v3)                       |
-+------------------------------------------------------------------------------------+
-                                         |
-                                         v
-+------------------------------------------------------------------------------------+
-|                        Metadata Index & Provenance Graph                           |
-|       Condition -> Recording -> SignalWindow -> Finding -> Similar Windows        |
-+------------------------------------------------------------------------------------+
-                                         |
-                                         v
-+------------------------------------------------------------------------------------+
-|                      Evidence-Only LLM Orchestrator                                |
-|        (Grounded Prompts, Zero Math Prompting, Structured Citations)               |
-+------------------------------------------------------------------------------------+
-                                         |
-                                         v
-+------------------------------------------------------------------------------------+
-|                       FastAPI Endpoints / Conversational Chat                      |
-+------------------------------------------------------------------------------------+
+ DAQ recordings (25 condition folders, CSV files)
+        │
+        ▼
+ ① Ingestion & quality gate ── bad files are quarantined, never "repaired"
+        │
+        ▼
+ ② Signal processing ── sampling rate, gap filling, 2,048-sample windows
+        │
+        ▼
+ ③ Features ── time-domain statistics + frequency-band energy per window
+        │
+        ▼
+ ④ Per-condition baselines ── "normal" for each (condition, channel) pair
+        │
+        ▼
+ ⑤ Anomaly detection ── windows far from their baseline become Findings
+        │
+        ▼
+ ⑥ Provenance graph + indexes ── Condition → Recording → Window → Finding
+        │
+        ▼
+ ⑦ Evidence-only LLM ── explains findings in plain language, with citations
+        │
+        ▼
+ ⑧ API + web app ── chat, dataset health, analysis, evidence browser
 ```
+
+**① Ingestion and quality gate.** The dataset is discovered from its folder
+names. Each condition folder is named like `4_S800_F35_D0.25`, which encodes
+condition 4 at speed 800, feed 35 and depth 0.25. The pattern is configurable.
+Every CSV is checked before any analysis: raw bytes are checksummed, stray
+null bytes are removed and logged, and the header, column count and numeric
+values are validated. A file that fails is **quarantined** with a logged
+reason (for example `column_count_mismatch:4` or `unparseable_csv`). It is
+never coerced into the seven-channel format. In the last full profile, 805
+recordings passed and 17 were quarantined.
+
+**② Signal processing.** The sampling rate is measured from the time column,
+never assumed. Short gaps are filled per channel. Each channel is cut into
+windows of 2,048 samples with 50% overlap. Every window remembers its exact
+sample range and, when the time axis is trustworthy, its time range.
+
+**③ Features.** Each window gets time-domain statistics (mean, spread, RMS,
+peak, crest factor, kurtosis, skewness). When the sampling rate is valid, it
+also gets frequency features (low/mid/high band energy and spectral centroid).
+If the rate can't be confirmed, frequency features are skipped rather than
+guessed.
+
+**④ Baselines.** For every (condition, channel) pair, the mean and spread of
+each feature are computed from **canonical recordings only**. No global
+baseline is used.
+
+**⑤ Anomaly detection.** Each window is scored by its distance from its own
+condition's baseline, using a diagonal Mahalanobis distance (model version
+`mahalanobis-diagonal-v3`). Windows above the threshold (3.0 by default)
+become **Findings**. A Finding records where it came from and which features
+moved most, already phrased in plain language ("low-frequency vibration
+energy above the condition baseline").
+
+**⑥ Provenance and retrieval.** Findings are linked in an in-memory graph
+(Condition → Recording → SignalWindow → Finding). Exact metadata filters
+(condition, channel, recording) select what a question is about, and a
+feature store supports similar-window search.
+
+**⑦ Explanation.** The LLM receives the selected Findings, their statements
+and short provenance. Nothing else goes in: no raw signal arrays and no
+free-form data. It writes a short summary with representative findings
+marked `[Finding N]`. Citations are built from the Findings themselves, not
+parsed from the LLM's text, so they can't be invented.
+
+**⑧ Serving.** A FastAPI backend exposes everything over HTTP, and a React
+web app sits on top.
+
+### Separate module: tool-wear prediction
+
+A supervised regression model (gradient-boosted trees) predicts tool wear in
+µm from each recording's computed signal features plus its S/F/D settings. It
+trains from the command line and writes a model and an evaluation report
+locally. It is **not yet served by the API** (see §11).
 
 ---
 
-## Quickstart: How to Start the Project
+## 3. What happens when you ask a question
 
-### Prerequisites
+The chat server works out the scope from the question itself. It needs
+**one condition number and one signal**: "condition 4" plus "spindle
+vibration", "X load", "motor current" and so on. Without both, it replies
+with a short message asking for them.
+
+```
+Question ──► Is the dataset inventory loaded?
+                 no  → reply "ingesting"; load it (seconds when cached)
+                 yes ▼
+             Are findings for this condition + signal in memory?
+                 yes → answer now
+                 no  ▼
+             Is there a saved analysis on disk that covers it?
+                 yes → load it (about 1 s) and answer now
+                 no  → reply "analysing"; run the analysis in the background
+                        (minutes, only the first time for this scope)
+```
+
+When the backend replies "ingesting" or "analysing", the web app shows a
+progress card, checks the status every 2 seconds, and re-asks automatically
+when the work is done. A question on a scope that is already prepared usually
+takes **10–30 seconds**, almost all of it the language model.
+
+---
+
+## 4. The web app
+
+| Page | What it's for |
+|---|---|
+| **Ask** | The chat. Answers show clickable citation chips (F1, F2…). Clicking one opens an evidence panel with the provenance trail (condition → recording → window → finding), source file, sample range and time range. A "scoped query" option lets you pick the condition, channel and number of findings explicitly. |
+| **Dataset Health** | Runs ingestion and shows discovered / canonical / quarantined counts, the quarantine rate and a chart of rejection reasons. |
+| **Analysis** | Starts an anomaly analysis for a chosen condition and channels, shows its progress, and hands off to Ask with a ready-made question. If you leave and come back, it picks up a running job. |
+| **Evidence** | Every citation seen this session, filterable, exportable to CSV or JSON. |
+| **Config** | Views and edits the domain configuration. Saving shows which top-level keys will change and asks for confirmation; the backend reloads it without a restart. |
+| **About** | The pipeline and the three rules: deterministic analytics, traceable provenance, evidence-only explanations. |
+
+The app also has dark and light themes, works on phones (360 px), supports
+keyboard navigation, and can run entirely on **mock data** with no backend,
+which is useful for UI work and demos. Two extra preview pages (waveforms and
+tool wear) appear only with mock data, because their backend endpoints don't
+exist yet.
+
+Frontend-specific details: [frontend/README.md](frontend/README.md).
+
+---
+
+## 5. Getting started
+
+### What you need
+
 - **Python 3.10+**
-- **pip** package manager
+- **Node.js 22** (for the web app)
+- An API key for **Gemini** (default) or **OpenAI**
+- The DAQ dataset, placed at `dataset/Readngs_DAQ_Data/`, with one folder per
+  condition, each holding `Recording <N>.csv` files. The data is not in the
+  repository and is git-ignored.
 
-### 1. Installation
-
-Clone the repository and install the dependencies:
+### One-time setup
 
 ```bash
 python3 -m pip install -r requirements.txt
+cp .env.example .env                  # then add your API key (see §6)
+
+cd frontend
+npm install
+cp .env.example .env.local            # then set VITE_CORE_API_URL (see below)
 ```
 
-### 2. Environment Configuration
+In `frontend/.env.local`, point **both** URLs at the one backend:
 
-Copy the example environment file:
-
-```bash
-cp .env.example .env
+```
+VITE_CHAT_API_URL=http://localhost:8000
+VITE_CORE_API_URL=http://localhost:8000
 ```
 
-Edit `.env` to supply your API key (see [API Key Configuration](#api-key-configuration--headless-usage)).
+### Every time
 
-### 3. Running the Servers
-
-The project provides two FastAPI entrypoints depending on your workflow:
-
-#### Option A: Conversational Frontend Server (`server.py`)
-This is the recommended entrypoint for interactive chat and frontend integration. It automatically detects condition IDs and channels from user prompts, triggers background ingestion/analysis if needed, and returns status codes or grounded responses.
+Terminal 1, at the repository root:
 
 ```bash
 python3 -m uvicorn server:app --reload --port 8000
 ```
 
-#### Option B: Low-Level Core API (`api/main.py`)
-Provides direct access to explicit `/ingest`, `/profile`, `/analyse`, `/query`, and dynamic `/config` endpoints.
+Terminal 2:
 
 ```bash
-python3 -m uvicorn api.main:app --reload --port 8000
+cd frontend && npm run dev
 ```
 
-### 4. Running Verification & Regression Tests
+Open **http://localhost:5173** and ask something like *"Which windows look
+abnormal in the X load cell for condition 7?"*.
 
-Run the full synthetic regression suite:
+**Why one backend?** `server.py` serves the chat endpoints *and* every core
+endpoint (`/ingest`, `/profile`, `/analyse`, `/query`, `/config`). Running
+`api/main.py` as a second server on another port gives it a separate memory:
+analyses started from one aren't visible to the other, and each ingests the
+dataset separately. The second entrypoint remains for headless or scripted
+use.
 
-```bash
-python3 -m pytest -q
-```
+### No backend? Use mock mode
 
-To run verification against a live mounted DAQ dataset:
-
-```bash
-DAQ_DATASET_ROOT=/path/to/Readngs_DAQ_Data DAQ_EXPECTED_FILE_COUNT=822 python3 -m pytest -q tests/test_manifest.py tests/test_quality.py
-```
-
-### 5. Training the Supervised Tool-Wear Regressor
-
-Train the HistGradientBoosting tool-wear regressor model on real DAQ recordings and workbook targets:
-
-```bash
-python3 train_tool_wear_model.py --dataset-root dataset/Readngs_DAQ_Data --wear-workbook Tool_Wear_Value_Table.xlsx
-```
+Set `VITE_USE_MOCKS=true` in `frontend/.env.local` and run only
+`npm run dev`. Every page works on realistic sample data, and the UI marks it
+as mock data.
 
 ---
 
-## API Key Configuration & Headless Usage
+## 6. Configuration
 
-Because no web frontend is required to operate the platform, you can fully interact with the system headlessly via API calls (`cURL`, Python `requests`, or Postman).
+### Backend (`.env` at the repository root; `.env.example` lists every option)
 
-### 1. Setting Up `.env`
-
-The platform supports both **Gemini** and **OpenAI** backends via the plugin registry.
-
-#### Gemini Setup (Default)
-Set the following in `.env`:
-
-```env
-LLM_PROVIDER=gemini
-GEMINI_API_KEY=your_actual_gemini_api_key
-GEMINI_MODEL=gemini-3.6-flash
-GEMINI_MAX_RETRIES=2
-```
-
-> **Note**: `gemini-3.6-flash` is recommended for high-speed, reliable grounded reasoning. Retry logic handles transient HTTP 429/5xx capacity spikes with exponential backoff.
-
-#### OpenAI Setup
-Set the following in `.env`:
-
-```env
-LLM_PROVIDER=openai
-OPENAI_API_KEY=your_actual_openai_api_key
-OPENAI_MODEL=gpt-6-astra
-```
-
----
-
-### 2. Interactive Headless Usage via API / cURL
-
-#### A. Automatic Conversational Chat (`POST /chat`)
-
-Send natural language questions directly to `server.py`. The server automatically extracts the target process condition (e.g. `condition 4`) and signal channel (e.g. `spindle vibration`), runs scope analysis in the background if necessary, and returns a grounded answer once ready.
-
-**Request:**
-```bash
-curl -X POST "http://localhost:8000/chat" \
-     -H "Content-Type: application/json" \
-     -d '{
-       "question": "What changed in spindle vibration for condition 4?"
-     }'
-```
-
-**Response (Scope Analysis Pending - HTTP 202):**
-```json
-{
-  "status": "analysing",
-  "condition_id": "4",
-  "channel": "Vib_Spindle",
-  "message": "Analysing the requested signal. Retry this question when status is analysis_ready.",
-  "status_url": "/chat/status"
-}
-```
-
-**Check Status (`GET /chat/status`):**
-```bash
-curl http://localhost:8000/chat/status
-# Returns: {"status": "analysis_ready"}
-```
-
-**Response (Scope Ready - HTTP 200):**
-```json
-{
-  "answer": "For condition 4, spindle vibration exhibited significant energy departures from the normal process baseline across multiple sample windows. Low-frequency vibration energy departed most significantly [Finding 1].",
-  "citations": [
-    {
-      "label": "Finding 1",
-      "finding_id": "finding-0298a0f1",
-      "model_version": "mahalanobis-diagonal-v3",
-      "source_path": ".../N_4/Recording 12.csv",
-      "channel": "Vib_Spindle",
-      "window_id": "win-12-004",
-      "sample_range": {"sample_start": 4096, "sample_end": 6144},
-      "time_range": {"time_start": 0.4096, "time_end": 0.6144}
-    }
-  ],
-  "finding_count": 1
-}
-```
-
----
-
-#### B. Explicit Step-by-Step Direct API Calls (`api/main.py`)
-
-If you prefer explicit control over each pipeline phase:
-
-##### Step 1: Ingest and Profile the DAQ Dataset
-```bash
-curl -X POST "http://localhost:8000/ingest" \
-     -H "Content-Type: application/json" \
-     -d '{
-       "folder_path": "dataset/Readngs_DAQ_Data",
-       "config_path": "config/domain.yaml"
-     }'
-```
-
-##### Step 2: Check Profiling Summary
-```bash
-curl http://localhost:8000/profile
-```
-*Returns inventory summary: total discovered recordings, canonical count, quarantined count, and rejection reason breakdown.*
-
-##### Step 3: Trigger Scoped Signal Analytics
-```bash
-curl -X POST "http://localhost:8000/analyse" \
-     -H "Content-Type: application/json" \
-     -d '{
-       "condition_id": "4",
-       "channels": ["Vib_Spindle"],
-       "window_size_samples": 2048,
-       "overlap": 0.5,
-       "anomaly_threshold": 3.0
-     }'
-```
-
-##### Step 4: Check Analysis Status
-```bash
-curl http://localhost:8000/analyse/status
-```
-
-##### Step 5: Query Grounded Explanations
-```bash
-curl -X POST "http://localhost:8000/query" \
-     -H "Content-Type: application/json" \
-     -d '{
-       "question": "Explain spindle vibration anomalies for condition 4",
-       "filters": {
-         "condition_id": "4",
-         "channel": "Vib_Spindle"
-       },
-       "top_k": 3
-     }'
-```
-
-##### Step 6: View or Hot-Reload Dynamic Configuration
-```bash
-# View active domain configuration
-curl http://localhost:8000/config
-
-# Hot-reload configuration without server restart
-curl -X PUT "http://localhost:8000/config" \
-     -H "Content-Type: application/json" \
-     -d @config/domain.yaml
-```
-
----
-
-## What Results to Expect
-
-### 1. Quality Gating & Inventory Profiling
-- **Manifest Discovery**: Dynamic discovery of all `Recording <N>.csv` files organized under condition folders (`N_1`, `N_2`, ..., `N_25`).
-- **Strict Quarantine Gating**: Input raw bytes undergo checksumming, NUL byte removal (`null_bytes_removed`), `surrogateescape` decoding, and column validation. Files with missing/malformed 7-channel numeric headers or mismatched sample widths are quarantined immediately with JSONL audit logs.
-- **Profiling Results**: `/profile` reports exact canonical vs quarantined file breakdowns before heavy signal loading.
-
-### 2. Signal Analytics & Baseline Anomaly Detection
-- **Measured Sampling Rate ($f_s$)**: Calculated strictly from inverse median positive Time deltas. FFT frequency features (low/mid/high band energy, spectral centroid) are calculated **only** when $f_s$ is validated.
-- **Per-Condition Baselines**: Baselines $(S, F, D)$ are calculated separately per condition and channel using only canonical recordings. Operating parameter changes (e.g. speed $S$, feed $F$, depth $D$) are never mistaken for defects.
-- **Diagonal Mahalanobis Anomalies (v3)**: Evaluates distance against the condition baseline. Computes the top 3 feature departures and translates them into natural-language diagnostic facts.
-
-### 3. Evidence-Grounded Conversational Explanations
-- **Zero Math In LLM**: Prompt construction feeds pre-calculated diagnostic statements to the LLM.
-- **Clear Citations**: Answers include clean inline markers (`[Finding 1]`) along with full JSON citations containing source CSV paths, channel names, sample indices, and physical timestamps.
-
-### 4. Supervised Tool-Wear Regression
-- **Target Integration**: Joins computed DAQ features with actual tool wear measurements ($\mu m$) from `Tool_Wear_Value_Table.xlsx`.
-- **Model Evaluation**: Evaluates HistGradientBoosting regression using whole-recording train/test splits (zero window leakage). Exports `model.joblib` and `evaluation.json` detailing Mean Absolute Error (MAE), Root Mean Squared Error (RMSE), and $R^2$ score.
-
-### 5. Persistent Local Caching
-- **Fingerprinted Cache**: Manifest signatures (file size, modification time, config hash) and analysis settings are cached under `runtime/daq_cache/`.
-- **Fast Restores**: Re-running ingestion or scope analysis on identical data restores state in milliseconds without re-reading 41 GB of raw CSV files.
-
----
-
-## Repository & Module Structure
-
-### Directory Tree
-
-```
-institutional-memory/
-├── .env.example                  # Environment configuration template
-├── README.md                     # Project documentation & user guide
-├── KNOWLEDGE_BASE.md             # In-depth architectural blueprint
-├── progress.md                   # Implementation step log & verification checklist
-├── requirements.txt              # Python dependencies
-├── server.py                     # Frontend-facing conversational chat entrypoint
-├── build_kg.py                   # Knowledge graph construction utility script
-├── train_tool_wear_model.py      # Supervised tool-wear training pipeline
-├── golden_test_suite.py          # Synthetic golden test evaluation runner
-├── evaluate_qwen.py              # Local LLM evaluation suite script
-├── analytics/                    # Feature baselining, anomaly detection & tool wear
-│   ├── anomaly.py                # Diagonal Mahalanobis detector (v3) with feature departures
-│   ├── baselines.py              # Per-condition normal feature baseline profiles
-│   ├── evaluation.py             # Leakage-safe whole-condition / recording splitters
-│   └── tool_wear.py              # Supervised tool-wear regressor dataset & model pipeline
-├── api/                          # REST API layer
-│   └── main.py                   # Core FastAPI application & background job orchestrator
-├── config/                       # Domain settings
-│   └── domain.yaml               # Domain configuration schema, channels & limits
-├── core/                         # Core system contracts & registry
-│   ├── config.py                 # YAML config loader & runtime hot-reloader
-│   ├── registry.py               # Plugin registries for Parsers, Embedders, Vector/Graph, LLMs
-│   └── schema.py                 # Unified Pydantic models (Recording, SignalWindow, Finding, etc.)
-├── ingestion/                    # DAQ data ingestion & quality gates
-│   ├── manifest.py               # Dataset discovery & manifest compilation
-│   ├── quality.py                # Raw byte checksums, NUL removal & CSV validation gates
-│   ├── pipeline.py               # DAQ ingestion pipeline orchestrator
-│   ├── chunker.py                # Document chunking strategies (text/RAG)
-│   └── parsers/                  # Format-specific parsers
-│       ├── csv_daq_parser.py     # DAQ CSV quality profiling & full numeric loading
-│       ├── pdf_parser.py         # PDF document text parser
-│       ├── cad_parser.py         # CAD file metadata parser
-│       └── email_parser.py       # E-mail message parser
-├── knowledge/                    # Graph ontology & entity resolution
-│   ├── ontology.py               # Typed DAQ lineage graph builder (Condition->Recording->Window->Finding)
-│   ├── graph_store.py            # In-memory Neo4j graph driver simulator
-│   └── ner.py                    # Entity extraction & alias table resolution
-├── llm/                          # LLM explanation & prompt engineering
-│   ├── orchestrator.py           # Grounded explanation orchestrators (DAQ & RAG)
-│   └── prompt_builder.py         # Zero-computation prompt formatting & templates
-├── retrieval/                    # Signal & document retrieval
-│   ├── metadata_index.py         # Fast metadata index for exact DAQ condition/channel filtering
-│   ├── feature_store.py          # Dense vector store for signal feature vectors
-│   ├── retriever.py              # DAQ hybrid retriever (Metadata -> Feature Store -> Graph)
-│   ├── vector_store.py           # In-memory text chunk vector store
-│   └── embedder.py               # Text embedding registry implementations
-├── runtime/                      # Derived local runtime cache (git-ignored)
-│   └── daq_cache/                # Fingerprinted ingest & analysis cache files
-└── tests/                        # Comprehensive synthetic test suite
-    ├── test_manifest.py          # Manifest discovery unit tests
-    ├── test_quality.py           # Quality gate & sanitization unit tests
-    ├── test_daq_pipeline.py      # Pipeline orchestration unit tests
-    ├── test_signal.py            # Preprocessing & sampling rate unit tests
-    ├── test_features.py          # Feature extraction unit tests
-    ├── test_baselines.py         # Condition baseline unit tests
-    ├── test_anomaly.py           # Anomaly detection unit tests
-    ├── test_evaluation.py        # Leakage-safe split unit tests
-    ├── test_ontology.py          # Graph lineage unit tests
-    ├── test_daq_retrieval.py     # Hybrid retrieval unit tests
-    ├── test_daq_orchestrator.py   # Grounded LLM explanation unit tests
-    └── test_daq_api.py           # End-to-end API integration tests
-```
-
----
-
-### Module Responsibilities
-
-| Module / Path | Main Responsibility |
+| Variable | Purpose |
 |---|---|
-| **`server.py`** | High-level conversational chat API (`POST /chat`, `GET /chat/status`). Extracts condition/channel scope from queries and triggers automatic background ingestion and analysis. |
-| **`api/main.py`** | Primary FastAPI service exposing low-level endpoints (`/ingest`, `/profile`, `/analyse`, `/query`, `/config`). Controls async worker threads, dataset fingerprinting, and state caching. |
-| **`ingestion/manifest.py`** | Discovers CSV recordings under condition folders, extracting $S, F, D$ operating parameters without parsing CSV contents. |
-| **`ingestion/quality.py`** | Enforces quality gates: checksums, NUL byte stripping, field-size limit overrides, column counts, and numeric validation before data enters the pipeline. |
-| **`ingestion/parsers/csv_daq_parser.py`** | Profiles CSV files into canonical or quarantined statuses, generating JSONL rejection logs and parsing numeric arrays. |
-| **`signal/preprocessing.py`** | Derives sampling frequency ($f_s$) from strictly positive time deltas and performs single-pass channel NaN linear interpolation. |
-| **`signal/windowing.py`** | Slices continuous channels into fixed 2048-sample windows with 50% overlap, maintaining exact sample index boundaries and timestamps. |
-| **`signal/features.py`** | Computes 9 time-domain metrics (mean, std, RMS, crest factor, kurtosis, skewness) and FFT frequency band energies (low, mid, high) gated on valid $f_s$. |
-| **`analytics/baselines.py`** | Fits normal reference profiles per `(condition_id, channel)` from canonical recordings only. |
-| **`analytics/anomaly.py`** | Scores window departures using diagonal Mahalanobis distance ($v3$), extracting top feature departures and plain-language evidence. |
-| **`analytics/tool_wear.py`** | Joins DAQ diagnostic features with workbook tool wear measurements to train and evaluate a HistGradientBoosting regressor. |
-| **`knowledge/ontology.py`** | Constructs typed graph lineage: `Condition` $\rightarrow$ `Recording` $\rightarrow$ `SignalWindow` $\rightarrow$ `Finding`. |
-| **`retrieval/metadata_index.py`** | Provides exact key-value indexing over condition IDs, channels, and recording metadata. |
-| **`retrieval/feature_store.py`** | Stores dense window feature vectors and supports nearest-neighbor cosine/Euclidean similarity searches. |
-| **`retrieval/retriever.py`** | Orchestrates hybrid DAQ retrieval: metadata filter candidates $\rightarrow$ vector feature ranking $\rightarrow$ graph neighborhood context. |
-| **`llm/orchestrator.py`** | Formulates grounded prompts, enforces zero-computation rules, invokes Gemini/OpenAI models, and builds structured citations. |
-| **`core/registry.py`** | Provides pluggable registries for dynamic swapping of Parsers, Embedders, Vector Stores, Graph Stores, and LLM backends. |
-| **`core/config.py`** | Loads `domain.yaml` settings and enables runtime hot-reloading without server restarts (`PUT /config`). |
+| `LLM_PROVIDER` | `gemini` (default) or `openai`. `mock` is for tests only; the DAQ query path refuses to answer with it. |
+| `GEMINI_API_KEY`, `GEMINI_MODEL` | Gemini credentials and primary model. |
+| `GEMINI_FALLBACK_MODELS` | Comma-separated models to try in order when the primary is temporarily unavailable (overloaded, rate-limited, network drop). Invalid-key or bad-request errors are never retried. |
+| `GEMINI_MAX_RETRIES` | Retries for the last model in the list. Earlier models are tried once each so a busy model doesn't stall the answer. |
+| `OPENAI_API_KEY`, `OPENAI_MODEL` | OpenAI alternative. |
+| `DAQ_DATASET_ROOT`, `DAQ_CONFIG_PATH` | Dataset and config locations (default `dataset/Readngs_DAQ_Data`, `config/domain.yaml`). |
+| `DAQ_WARM_START` | Set to `0` to stop the chat server loading the dataset inventory at startup. |
+
+### Domain configuration (`config/domain.yaml`)
+
+This file describes the domain rather than the code: the canonical channel
+names and expected column count, the folder-name pattern that encodes
+condition/S/F/D, quality-gate policy, feature bands, windowing defaults, the
+graph's entity and relation types, and the LLM's system instruction. It can
+be viewed and hot-reloaded through `GET/PUT /config` or the Config page.
+
+### Frontend (`frontend/.env.local`; `frontend/.env.example` lists every option)
+
+`VITE_CHAT_API_URL`, `VITE_CORE_API_URL`, `VITE_USE_MOCKS`,
+`VITE_ENABLE_PROPOSED`, the default dataset/config paths shown on Dataset
+Health, and `PORT` (default 5173). The backend URLs can also be changed at
+runtime in the app's Settings drawer (gear icon); saved values there take
+priority.
 
 ---
 
-## Future Plans & Roadmap
+## 7. Using the API directly
 
-1. **Interactive Web Dashboard (React / Next.js)**:
-   - Visual waveform viewer with interactive window overlay and anomaly highlight heatmaps.
-   - Real-time conversational interface connected to `POST /chat`.
-2. **Real-Time Stream Processing**:
-   - WebSockets and Kafka/MQTT streaming ingestion for online anomaly detection on live CNC machinery.
-3. **Advanced Machine Learning Models**:
-   - 1D-CNN and Autoencoder models for complex multimodal signal anomaly detection.
-   - Multi-step Remaining Useful Life (RUL) forecasting for cutting tools.
-4. **Distributed Scale-Out Execution**:
-   - Integration with PySpark / Dask for distributed window feature computation across terabyte-scale DAQ datasets.
-5. **Multi-Modal Document & Sensor Fusion**:
-   - Seamless cross-retrieval linking machine maintenance PDF manuals and CAD drawings directly with signal anomaly findings.
+Everything the web app does is available over HTTP, which suits scripts and
+automated checks. Interactive documentation is served at
+**http://localhost:8000/docs** while the backend runs.
 
+| Endpoint | Purpose |
+|---|---|
+| `POST /chat` | Ask a question. Returns **200** with an answer and citations, or **202** with `ingesting` / `analysing` while it prepares; re-ask when ready. |
+| `GET /chat/status` | Preparation status: `ingesting`, `analysing`, `ready`, `analysis_ready`. |
+| `POST /ingest` | Start a background profile of the dataset (returns 202). `force` bypasses the cache. |
+| `GET /profile` | Ingestion summary: discovered, canonical, quarantined and reasons. Returns 404 until the first ingestion. |
+| `POST /analyse` | Start a background analysis for a condition and optional channels, with window size, overlap and threshold. Returns 409 if one is already running. |
+| `GET /analyse/status` | `idle`, `running`, `complete` (with counts) or an error. |
+| `POST /query` | Scoped question with explicit `condition_id` / `channel` filters and `top_k`. |
+| `GET` / `PUT /config` | Read or hot-reload the domain configuration. |
+
+Answers use the same shape everywhere: `answer` (Markdown text with
+`[Finding N]` markers), `citations` (each with finding ID, model version,
+source file, channel, window, sample range and, when confirmed, time range)
+and `finding_count`.
+
+---
+
+## 8. Speed and caching
+
+Reading 41 GB is slow, so derived results are saved under
+`runtime/daq_cache/` (git-ignored):
+
+- **Ingestion cache.** The inventory is keyed by a fingerprint of every file's
+  path, size and modification time plus the config. An unchanged dataset
+  reloads in about 1.5 seconds; any change triggers a fresh profile.
+- **Analysis cache.** Windows, features, baselines and findings are saved per
+  analysis scope and settings. When you ask a question, any saved analysis
+  that *covers* it is reused: an exact match, the whole condition, the whole
+  channel or the whole dataset. That's safe because baselines and findings are
+  computed per (condition, channel), so a broader run gives identical findings
+  for that pair.
+- **In-memory merging.** Scopes you've asked about stay loaded together, so
+  switching between conditions is instant.
+
+Rough timings on the current machine:
+
+| Situation | Time |
+|---|---|
+| Server start → inventory ready | ~1.5 s |
+| First-ever analysis of a condition + channel | ~30 s to several minutes, depending on data volume |
+| Loading a saved analysis | ~1 s |
+| Answer once evidence is ready | ~10–30 s (the language model) |
+
+To force a recompute after changing the data, send `"force": true` to
+`/ingest` or `/analyse`, or use the switch on those pages.
+
+---
+
+## 9. Testing
+
+| Suite | Command | Covers |
+|---|---|---|
+| Backend | `python3 -m pytest -q` | Quality gate, windowing, features, baselines, anomalies, leakage-safe splits, graph, retrieval, evidence-only prompting, API, chat scope parsing, cache reuse, LLM fallback. Uses small synthetic data, so no dataset is needed. |
+| Live-data checks | `DAQ_DATASET_ROOT=… python3 -m pytest -q tests/test_manifest.py tests/test_quality.py` | Runs the manifest and quality gate against the real corpus when it's mounted. |
+| Frontend | `cd frontend && npx vitest run` | Chat flow (all backend states), Dataset/Analysis/Config pages, parsing and rendering, run against mock HTTP handlers. |
+| Frontend types / build | `npx tsc --noEmit`, `npx vite build` | Type safety and production bundle. |
+
+---
+
+## 10. Repository map
+
+| Path | Role |
+|---|---|
+| `server.py` | Main backend entrypoint. Chat endpoints, scope detection, automatic ingest/analysis, cache reuse, warm start. Includes every core endpoint. |
+| `api/main.py` | Core FastAPI app: ingest, profile, analyse, query and config, background jobs and caching. |
+| `ingestion/` | Dataset discovery (manifest), CSV quality gate, DAQ parser and pipeline. |
+| `signal/` | Sampling rate, gap filling, windowing and features. |
+| `analytics/` | Per-condition baselines, anomaly detection, leakage-safe splits, tool-wear model. |
+| `knowledge/` | Provenance graph (ontology and in-memory graph store). |
+| `retrieval/` | Metadata index, feature store and DAQ retriever. |
+| `llm/` | Evidence-only prompt builder and explanation orchestrator. |
+| `core/` | Shared data models, config loading/hot-reload, and plugin registries (including the Gemini/OpenAI providers). |
+| `config/domain.yaml` | Domain configuration (see §6). |
+| `train_tool_wear_model.py` | Command-line training and evaluation for the tool-wear model. |
+| `frontend/` | React web app (see its README). |
+| `tests/` | Backend test suite. |
+| `runtime/`, `artifacts/`, `quarantine/`, `uploads/` | Generated locally: caches, trained models, rejection logs, uploads. Git-ignored. |
+| `KNOWLEDGE_BASE.md`, `progress.md` | Blueprint and build log. |
+
+The document/PDF/CAD/e-mail parsers and text retrieval pieces come from the
+platform's original general-purpose design and are kept for compatibility.
+The scripts about **MyFixit / Qwen** (`train*.py`, `evaluate_qwen.py`,
+`golden_test_suite.py`, `build_kg.py`, `graph_retriever.py`, `yimplement.py`,
+`test.py`) are a separate, earlier experiment: a repair-manual assistant. They
+aren't part of the DAQ application.
+
+---
+
+## 11. Current status, limitations and roadmap
+
+**Working today**
+
+- Full pipeline from raw CSV to cited explanation, verified on the real
+  corpus.
+- Chat server with automatic ingestion/analysis, cache reuse and LLM fallback.
+- Web app with all six pages, mock mode and automated tests.
+- Tool-wear model: on 161 held-out recordings it scored MAE 14.3 µm,
+  RMSE 18.9 µm, R² 0.93 (split by whole recordings, so no window leakage).
+
+**Known limitations**
+
+- **Questions must name one condition and one signal.** Comparisons across
+  signals or conditions aren't supported yet.
+- **The first analysis of a new condition + channel takes time.** Every
+  answer after that uses the cache.
+- **Load-cell and current answers can use vibration wording.** Plain-language
+  feature statements currently say "vibration" for every channel. The
+  numbers are right; the wording needs to become channel-aware.
+- **Local use only.** The backend accepts connections only from the same
+  machine, so another computer on the network can open the web app but can't
+  reach the backend.
+- **The tool-wear split is not by condition.** It separates whole recordings,
+  but held-out recordings can share a condition with training ones. A
+  whole-condition hold-out would be a stricter test. The model isn't exposed
+  by the API or UI yet.
+- **The LLM provider can be busy.** Gemini models are sometimes overloaded;
+  configure fallback models (§6).
+
+**Next steps**
+
+1. Channel-aware wording for findings (load, current and vibration).
+2. Serve the tool-wear model through the API and connect the Tool Wear page.
+3. Endpoints for listing conditions, listing findings and fetching a window's
+   waveform, then enabling the Waveforms page. See
+   [frontend/BACKEND_REQUESTS.md](frontend/BACKEND_REQUESTS.md).
+4. Optional LAN access (bind the backend to the network and allow the
+   frontend's origin).
+5. Multi-signal and cross-condition questions.
+
+---
+
+## 12. Troubleshooting
+
+| Symptom | Cause and fix |
+|---|---|
+| `Address already in use` when starting a server | Another copy is already running on that port. Stop it (`ss -ltnp` shows who owns the port) or use a different port. |
+| Status dots in the app are red | The backend isn't running, or the URLs in `frontend/.env.local` or the Settings drawer point to the wrong port. |
+| Chat says "State both a condition and one signal" | Include a condition number and a signal, e.g. *"motor current for condition 4"*. |
+| "The language model is busy or not configured" | The provider returned 503/429, or the API key is missing. Retry, or set `GEMINI_FALLBACK_MODELS`. |
+| Answer takes a long time the first time | That condition and signal is being analysed for the first time. The progress card shows it, and later questions are fast. |
+| Analysis page shows "already running" | Only one analysis runs at a time. The page follows the running job and you can start yours when it finishes. |
+| Changed data but results didn't change | Use **force** on ingestion/analysis. The cache follows file size and modification time, not file contents. |

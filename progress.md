@@ -1,5 +1,51 @@
 # DAQ Institutional Memory — Implementation Progress
 
+This is the project's build log. The overview below says where things stand
+today. The dated entries after it record, in order, what was built or fixed,
+how, why, and how it was verified. For what the system is and how to run it,
+start with the [README](README.md).
+
+## Project status at a glance — 2026-09-30
+
+**Overall:** Working end to end on the real corpus. A question asked in the
+web app is scoped to one condition and signal, answered from
+deterministically computed findings, and every claim links to its source
+window.
+
+| Area | State | Notes |
+|---|---|---|
+| Dataset discovery and quality gate | ✅ Done | 822 recordings / 25 conditions discovered on the real corpus. Last full profile: 805 canonical, 17 quarantined (all column-count mismatches). |
+| Signal processing, features, baselines | ✅ Done | Measured sampling rate; 2,048-sample windows, 50% overlap; per-(condition, channel) baselines from canonical recordings only. |
+| Anomaly detection | ✅ Done | `mahalanobis-diagonal-v3`; findings carry plain-language feature departures and full provenance. |
+| Provenance graph and retrieval | ✅ Done | Graph build made linear (was quadratic) on 2026-09-29. |
+| Evidence-only explanations | ✅ Done | Gemini primary with configurable fallback models; answers cite `[Finding N]`. |
+| Chat server (`server.py`) | ✅ Done | Automatic ingest/analysis, reuse of any covering cached analysis, warm start. |
+| Web app (`frontend/`) | ✅ Done | Ask, Dataset Health, Analysis, Evidence, Config, About; mock mode; automated tests. |
+| Tool-wear regression | 🟡 Trained, not served | 161 held-out recordings: MAE 14.3 µm, RMSE 18.9 µm, R² 0.93. Not yet exposed via API/UI. |
+| Waveform viewer, findings list | ⏳ Not started | Needs new backend endpoints (`frontend/BACKEND_REQUESTS.md`); UI previews exist on mock data only. |
+
+**Test status (2026-09-30):** backend 53 passed / 2 skipped (skips need the
+live dataset); frontend 43 passed; type check and production build clean.
+
+**Known issues / open items**
+
+1. Feature statements say "vibration" for every channel, including load cells
+   and motor current. The numbers are correct; the wording needs to be
+   channel-aware.
+2. Questions must name exactly one condition and one signal; comparisons
+   aren't supported.
+3. Backend is reachable from the same machine only (no LAN access yet).
+4. Tool-wear evaluation splits by whole recording, not whole condition; a
+   condition-held-out evaluation would be stricter.
+5. The configured Gemini model is often overloaded; fallback models are
+   configured in `.env`.
+6. Live-data regression checks for specific quarantined files still need the
+   expected file/reason list (see the Step 1–12 audit below).
+
+**How to run and verify:** see README §5 (run) and §9 (tests).
+
+---
+
 ## Step 1 — Manifest inventory
 
 **Status:** Complete in code; live dataset-count verification pending dataset access.
@@ -324,7 +370,14 @@ to expected reason lists to activate the real-file quarantine assertions.
 
 ## Step 13 — Real DAQ corpus and supervised tool-wear model
 
-**Status:** In progress — real data schema verified; full-corpus train/evaluate running next.
+**Status:** Trained and evaluated on the full corpus (see result below); not
+yet served through the API or web app.
+
+**Result:** 804 labelled canonical recordings, 46 features, whole-recording
+split of 643 train / 161 test. Test MAE 14.3 µm, RMSE 18.9 µm, R² 0.93
+(`artifacts/tool_wear/evaluation.json`, git-ignored). Held-out recordings can
+share a condition with training recordings; a whole-condition hold-out is the
+stricter follow-up evaluation.
 
 **What:** The supplied `Readngs_DAQ_Data` corpus contains 25 discovered
 conditions and exactly 822 recordings (about 41 GB). The supplied
@@ -590,3 +643,54 @@ retries reserved for the last.
 4xx, covering-cache reuse without starting analysis). Live, from a fresh
 server: inventory ready in 1.6 s; questions on cached scopes answered in
 10–15 s (previously 126 s / 276 s / 47 s) with no analysis run.
+
+## Frontend ↔ real backend integration — 2026-09-29
+
+**Root cause:** The web app had been built against mock responses, and the
+real chat server behaves differently in ways the mocks didn't cover.
+(1) On a fresh backend, `/chat` first replies 202 `ingesting` (no condition or
+channel yet), then status `ready`, then a second 202 `analysing`. The app
+accepted only one `analysing` reply, so the first question after every
+restart failed. (2) A real answer takes 10–35 s because of the LLM, but chat
+requests timed out after 30 s. (3) Answers arrive as Markdown and were
+printed as one run-on paragraph. (4) Real recording folders are named like
+`4_S800_F35_D0.25`, which the citation parser didn't recognise, so the
+provenance trail and Evidence page couldn't show the condition. (5) The
+Analysis page didn't show backend errors (e.g. "ingest first"), and leaving
+the page lost track of a running job, so later clicks hit "already running".
+
+**Fix:** The chat flow keeps polling while the backend reports `ingesting` or
+`analysing`, re-asks when it's done, handles repeated 202s (capped at five
+re-asks), and allows 5 minutes for LLM-backed requests. Answers render a safe
+Markdown subset (headings, bullets, bold) with citation chips inside. The
+path parser understands the real folder layout. The Analysis page shows
+backend errors with a link to Dataset Health and re-attaches to a running job
+when opened. Mock handlers now follow the real reply sequence.
+
+**Verification:** Reproduced and re-checked each case in a browser against
+the real backend; new frontend tests cover each reply sequence and page
+behaviour.
+
+## Chat Send reliability — 2026-09-30
+
+**Root cause:** Two separate problems made Send look broken.
+(1) Opening the app at the machine's network address
+(`http://10.24.14.94:5173`) instead of `localhost` makes it a non-secure page,
+where browsers don't provide `crypto.randomUUID()`. The chat used that to
+create message IDs, so every Send failed before any request was made; the
+error only reached the browser console. (2) While an answer was pending
+(10–30 s), the page showed only faint placeholder bars and locked the text box
+and Send button, so it looked unresponsive. A page reload mid-question also
+left a placeholder that never resolved.
+
+**Fix:** IDs come from a helper that falls back to `crypto.getRandomValues`
+(available on plain HTTP). The waiting state now shows a spinner, an elapsed
+counter, the expected duration and a Cancel button. The text box stays usable
+for the next question, and leftover placeholders from a reload are labelled
+as interrupted. Frontend tests pin their own API URLs so a developer's
+`.env.local` can't change them.
+
+**Verification:** Send works on the network-address URL in a browser; a
+question without a condition shows the backend's guidance, and one with a
+condition is answered with citations. Frontend: 43 tests pass, type check and
+build clean.
