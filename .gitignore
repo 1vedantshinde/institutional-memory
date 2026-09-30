@@ -38,3 +38,10 @@ uploads/*
 Thumbs.db
 .vscode/
 .idea/
+
+# Frontend (see frontend/.gitignore for the full list)
+node_modules/
+frontend/dist/
+frontend/coverage/
+
+

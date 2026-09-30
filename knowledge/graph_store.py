@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -22,6 +23,15 @@ class Neo4jSimulationDriver:
     def __init__(self) -> None:
         self.nodes: dict[str, dict[str, Any]] = {}
         self.edges: list[GraphEdge] = []
+        # Hash indexes: MERGE dedupe and neighbor lookup were linear scans of
+        # ``edges``, making graph builds O(n²) (≈200 s for ~24k windows).
+        self._edge_keys: set[tuple[str, str, str, str]] = set()
+        self._adjacent: dict[str, list[GraphEdge]] = {}
+
+    @staticmethod
+    def _edge_key(edge: GraphEdge) -> tuple[str, str, str, str]:
+        # Same identity as GraphEdge equality, including properties
+        return (edge.source, edge.target, edge.type, json.dumps(edge.properties, sort_keys=True, default=str))
 
     def merge_node(self, label: str, key: str, value: str, props: dict[str, Any]) -> None:
         """MERGE a node identity and update its properties without duplication."""
@@ -47,8 +57,13 @@ class Neo4jSimulationDriver:
         candidate = GraphEdge(
             self._node_id(source), self._node_id(target), type, dict(properties or {})
         )
-        if candidate not in self.edges:
+        key = self._edge_key(candidate)
+        if key not in self._edge_keys:
+            self._edge_keys.add(key)
             self.edges.append(candidate)
+            self._adjacent.setdefault(candidate.source, []).append(candidate)
+            if candidate.target != candidate.source:
+                self._adjacent.setdefault(candidate.target, []).append(candidate)
 
     @staticmethod
     def _node_id(node: Any) -> str:
@@ -60,7 +75,7 @@ class Neo4jSimulationDriver:
 
     def get_neighbors(self, node_id: str) -> list[GraphEdge]:
         """Return one-hop incoming/outgoing edges as correctly typed objects."""
-        return [edge for edge in self.edges if edge.source == node_id or edge.target == node_id]
+        return list(self._adjacent.get(node_id, []))
 
     def get_neighbor_triplets(self, node_id: str) -> list[str]:
         """Compatibility formatter for legacy prompt rendering code."""

@@ -244,34 +244,55 @@ class GeminiLLM(BaseLLM):
         self.client = genai.Client()
         self.types = types
         self.model = model or os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
+        # Explicitly configured same-provider fallbacks, tried in order only when
+        # the primary model is temporarily unavailable (e.g. 503 overloaded).
+        fallbacks = os.environ.get("GEMINI_FALLBACK_MODELS", "")
+        self.fallback_models = [
+            name.strip() for name in fallbacks.split(",") if name.strip() and name.strip() != self.model
+        ]
+
+    @staticmethod
+    def _is_transient(exc: Exception) -> bool:
+        # Gemini uses 429 for temporary quota exhaustion and 5xx for temporary
+        # service/model capacity failures; OSError covers DNS/connection drops.
+        # Never retry an invalid key, invalid model, or other permanent 4xx error.
+        status_code = getattr(exc, "code", None)
+        if status_code in {429, 500, 502, 503, 504}:
+            return True
+        return status_code is None and (isinstance(exc, OSError) or "ConnectError" in type(exc).__name__)
 
     def generate(self, prompt: str, system_prompt: Optional[str] = None) -> str:
         config = self.types.GenerateContentConfig(system_instruction=system_prompt) if system_prompt else None
         retries = max(0, int(os.environ.get("GEMINI_MAX_RETRIES", "2")))
-        response = None
-        for attempt in range(retries + 1):
-            try:
-                response = self.client.models.generate_content(
-                    model=self.model,
-                    contents=prompt,
-                    config=config,
-                )
-                break
-            except Exception as exc:
-                status_code = getattr(exc, "code", None)
-                # Gemini uses 429 for temporary quota exhaustion and 5xx for
-                # temporary service/model capacity failures. Never retry an
-                # invalid key, invalid model, or other permanent 4xx error.
-                if status_code not in {429, 500, 502, 503, 504} or attempt == retries:
-                    if status_code in {429, 500, 502, 503, 504}:
-                        raise LLMProviderUnavailableError(
-                            f"Gemini is temporarily unavailable (HTTP {status_code}) after "
-                            f"{attempt + 1} attempt(s). Try again shortly or select another Gemini model."
-                        ) from exc
-                    raise
-                time.sleep(2**attempt)
-        assert response is not None
-        output = (response.text or "").strip()
-        if not output:
-            raise RuntimeError("Gemini returned no text output")
-        return output
+        failures: list[str] = []
+        models = [self.model, *getattr(self, "fallback_models", [])]
+        for index, model in enumerate(models):
+            # An overloaded model can take ~20 s to fail, so with another model
+            # still to try, move on after one failure; retries go to the last.
+            attempts = 1 if index < len(models) - 1 else retries + 1
+            for attempt in range(attempts):
+                try:
+                    response = self.client.models.generate_content(
+                        model=model,
+                        contents=prompt,
+                        config=config,
+                    )
+                except Exception as exc:
+                    if not self._is_transient(exc):
+                        raise
+                    if attempt == attempts - 1:
+                        code = getattr(exc, "code", None)
+                        failures.append(
+                            f"{model} ({f'HTTP {code}' if code else type(exc).__name__}, {attempts} attempt(s))"
+                        )
+                        break  # this model is unavailable; try the next configured one
+                    time.sleep(2**attempt)
+                    continue
+                output = (response.text or "").strip()
+                if not output:
+                    raise RuntimeError("Gemini returned no text output")
+                return output
+        raise LLMProviderUnavailableError(
+            f"Gemini is temporarily unavailable: {', '.join(failures)}. "
+            "Try again shortly or set GEMINI_FALLBACK_MODELS."
+        )

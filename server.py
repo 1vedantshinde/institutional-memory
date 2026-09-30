@@ -22,6 +22,16 @@ import api.main as daq_api
 app = daq_api.app
 
 
+def _warm_start() -> None:
+    """Restore the DAQ inventory at boot (from its cache when unchanged) so the
+    first question does not have to wait for ingestion."""
+    if os.environ.get("DAQ_WARM_START", "1") != "0":
+        _start_automatic_ingest()
+
+
+app.router.on_startup.append(_warm_start)
+
+
 CHANNEL_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Vib_Spindle", ("spindle", "spindle vibration")),
     ("Vib_Table", ("table", "table vibration")),
@@ -81,18 +91,66 @@ def _start_automatic_ingest() -> None:
     ).start()
 
 
-def _start_automatic_analysis(condition_id: str, channel: str) -> bool:
-    """Start one scoped job, or restore an exact persisted result immediately."""
-    request = daq_api.AnalyseRequest(condition_id=condition_id, channels=[channel])
-    if daq_api.daq_state.dataset_fingerprint is None:
+def _covering_requests(condition_id: str, channel: str) -> list[daq_api.AnalyseRequest]:
+    """Default-settings analysis scopes whose findings include (condition, channel).
+
+    Baselines and findings are computed per (condition_id, channel) from that
+    group's canonical windows only, so a broader run (all channels, or the
+    whole dataset) yields exactly the findings a narrow run would. Narrowest
+    first: those cache files are the smallest to load.
+    """
+    return [
+        daq_api.AnalyseRequest(condition_id=condition_id, channels=[channel]),
+        daq_api.AnalyseRequest(condition_id=condition_id),
+        daq_api.AnalyseRequest(channels=[channel]),
+        daq_api.AnalyseRequest(),
+    ]
+
+
+def _restore_scope_from_cache(condition_id: str, channel: str) -> bool:
+    """Load persisted findings for the scope, keeping scopes already in memory.
+
+    Merging (rather than replacing, as ``_restore_analysis_cache`` does) means
+    switching between previously asked conditions/channels needs no reload.
+    """
+    fingerprint = daq_api.daq_state.dataset_fingerprint
+    if fingerprint is None:
         return False
-    cache_key = daq_api._analysis_cache_key(daq_api.daq_state.dataset_fingerprint, request)
-    cached = daq_api._read_cache(daq_api._analysis_cache_path(cache_key))
-    if cached is not None:
-        daq_api._restore_analysis_cache(cached)
+    for request in _covering_requests(condition_id, channel):
+        cache_path = daq_api._analysis_cache_path(daq_api._analysis_cache_key(fingerprint, request))
+        cached = daq_api._read_cache(cache_path)
+        if cached is None:
+            continue
+        state = daq_api.daq_state
+        windows = {w.window_id: w for w in state.windows}
+        windows.update(
+            (w.window_id, w) for w in (daq_api.SignalWindow.model_validate(i) for i in cached["windows"])
+        )
+        findings = {f.finding_id: f for f in state.findings}
+        findings.update(
+            (f.finding_id, f) for f in (daq_api.Finding.model_validate(i) for i in cached["findings"])
+        )
+        profiles = dict(state.baselines.profiles) if state.baselines else {}
+        profiles.update(
+            ((item["condition_id"], item["channel"]), daq_api.ConditionChannelBaseline(**item))
+            for item in cached["baselines"]
+        )
+        daq_api._hydrate_analysis_state(
+            list(windows.values()), list(findings.values()), daq_api.BaselineCollection(profiles=profiles)
+        )
         with daq_api.daq_state_lock:
             daq_api.daq_state.analysis_status = "complete"
             daq_api.daq_state.analysis_result = cached["result"]
+        return True
+    return False
+
+
+def _start_automatic_analysis(condition_id: str, channel: str) -> bool:
+    """Start one scoped job, or restore a covering persisted result immediately."""
+    request = daq_api.AnalyseRequest(condition_id=condition_id, channels=[channel])
+    if daq_api.daq_state.dataset_fingerprint is None:
+        return False
+    if daq_api.daq_state.analysis_status != "running" and _restore_scope_from_cache(condition_id, channel):
         return True
     with daq_api.daq_state_lock:
         if daq_api.daq_state.analysis_status == "running":

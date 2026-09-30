@@ -506,3 +506,87 @@ calling `/ingest` and `/analyse`. New evidence cannot be truthfully answered in
 seconds before signal analytics finishes, so `/chat` returns HTTP 202 while a
 new scope is being prepared; `GET /chat/status` lets the frontend poll and
 resend the question. Subsequent matching cached scopes answer immediately.
+
+## Frontend stabilisation — 2026-09-29
+
+**Status:** Complete. `npx tsc --noEmit` (0 errors, was 57), `npx vite build`
+(no warnings), and `npx vitest run` (24/24 across 5 files, was 0 collected)
+are all clean. Verified in headless Chrome against the MSW mocks.
+
+**Root cause (blank app):** `src/api/schemas.ts` called `.passthrough()` on a
+`z.record()`, which zod v4 does not support. The TypeError is thrown while the
+ES module graph evaluates, so `main.tsx` never ran and every route rendered an
+empty `#root`. Separately, `vite.config.ts` imported
+`.figma/make/site.json`, a Figma Make-only file absent outside Figma, so
+neither `vite` nor `vite build` could start.
+
+**Fixes:**
+- `ConfigResponseSchema` → `z.record(z.string(), z.unknown())`; every
+  `z.record(z.number())` → `z.record(z.string(), z.number())` so reason-count
+  maps type as `Record<string, number>`.
+- `vite.config.ts`: inlined the site config (title/lang), removed the
+  duplicate `proxy` block, default port 8443 → 5173 (what the README and CORS
+  note assume), and `loadEnv()` so `.env.local` reaches the proxy targets/PORT.
+- Tests: one setup file (`src/test/setup.ts`) now starts MSW; previously the
+  wired-up file only mocked storage, so MSW never ran. Fake timers use
+  `shouldAdvanceTime` (Testing Library's `waitFor` hung under Vitest fakes).
+- `postChat` wraps connection failures in `NetworkError`/`TimeoutError` and
+  tolerates non-JSON error bodies; before, a refused connection surfaced as
+  "An unexpected error occurred." instead of "Can't reach the chat server".
+  Error messages now read FastAPI's `detail`, so a 400 shows its exact path
+  message rather than `HTTP 400`.
+- Analysis: the job card unmounted the moment a run completed, hiding
+  "Ask about this scope" (the Analysis→Ask handoff); a second run also reused
+  the previous run's cached `complete` status and never polled.
+- Dataset Health: the quarantine-rate KPI rendered `NaN` (string passed
+  through `Number()`).
+- Config: validates the payload is a JSON object, lists each top-level key as
+  added/removed/changed, disables Confirm when nothing changed, and states the
+  change affects parsing and analysis.
+- `src/index.css`: an unlayered `* { margin: 0; padding: 0 }` outranked all
+  Tailwind v4 utilities, silently disabling every `p-*`/`m-*`/`space-*` class.
+  Base styles now live in `@layer base`.
+- Accessibility: removed the live region wrapping the ticking elapsed timer;
+  Dataset/Config completion is announced through `#live-announcer`; chat
+  auto-scroll honours `prefers-reduced-motion`.
+- All six main routes are lazy-loaded (single 1.03 MB chunk → 397 kB entry
+  plus per-page chunks).
+- Deleted the unrouted duplicate pages under `src/features/{about,analysis,
+  config,dataset,evidence,proposed}`, `features/ask/{AskPage,index}`,
+  `src/lib/export.ts` and `src/lib/cn.ts` (confirmed unreachable from
+  `main.tsx` with the TypeScript compiler's module resolution).
+- Added `frontend/.env.example`, `frontend/.gitignore`, and typed
+  `ImportMetaEnv`.
+
+**Verification:** Beyond the three commands above, a headless-Chrome audit of
+all six routes at 360 px and 1280 px in both themes found no horizontal
+overflow and a visible focus ring on every tab stop. With reduced motion
+emulated, all animations/transitions computed to ~0 s. The mocked Ask flow
+(202 → poll → auto-resend → 200 with F1/F2 citation chips) and Dataset
+ingest → KPIs were exercised end to end.
+
+## Chat answers without re-analysis — 2026-09-29
+
+**Root cause:** Three backend issues made every question slow or failing.
+(1) `knowledge/graph_store.py` deduplicated edges with `candidate not in
+self.edges`, a list scan, so rebuilding the provenance graph from a cached
+analysis was O(n²): 25 s for one condition/channel and ~200 s once a second
+scope was loaded. (2) `/chat` only reused a cache for the exact
+(condition, single channel) request, and replaced the in-memory scope on
+every restore, so broader runs (e.g. all channels from the Analysis page) and
+previously asked scopes were ignored. (3) The configured Gemini model
+(`gemini-3.6-flash`) was returning 503 "overloaded" with no fallback.
+
+**Fix:** Edge MERGE and neighbor lookup now use hash indexes (restore 25 s →
+0.6 s; two scopes 204 s → 1.6 s). `server.py` restores from any covering
+default-settings cache (condition+channel, condition, channel, whole dataset —
+valid because baselines/findings are computed per (condition, channel)) and
+merges it into memory, and restores the DAQ inventory at startup
+(`DAQ_WARM_START=0` disables). `GeminiLLM` tries `GEMINI_FALLBACK_MODELS` in
+order on transient 429/5xx/connection failures, one attempt per model with
+retries reserved for the last.
+
+**Verification:** 53 Python tests pass (new: fallback order, no fallback on
+4xx, covering-cache reuse without starting analysis). Live, from a fresh
+server: inventory ready in 1.6 s; questions on cached scopes answered in
+10–15 s (previously 126 s / 276 s / 47 s) with no analysis run.
