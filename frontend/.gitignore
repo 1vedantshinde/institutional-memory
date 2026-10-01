@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Build and test output
+dist/
+coverage/
+*.tsbuildinfo
+.vite/
+
+# Local environment — copy .env.example to .env.local
+.env
+.env.*
+!.env.example
+
+# Logs
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+*.log
+
+# Figma Make workspace metadata (not part of the app)
+.figma/
+
+# Editor and OS files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

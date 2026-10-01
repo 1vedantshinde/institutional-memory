@@ -3,21 +3,42 @@
 Decoupled orchestrator handling hybrid retrieval, prompt rendering,
 LLM response generation, confidence scoring, and citation mapping.
 """
-import re
 import os
+import re
+from pathlib import Path
 from typing import List, Dict, Any, Optional
+from dotenv import load_dotenv
 from core.registry import llm_registry, vector_store_registry, embedder_registry
-from core.schema import Chunk
-from llm.prompt_builder import build_system_prompt, build_prompt
+from core.schema import Chunk, Condition, Finding
+from knowledge.graph_store import GraphEdge, Neo4jSimulationDriver
+from knowledge.ontology import (
+    CAPTURED_UNDER,
+    EXHIBITS_PATTERN,
+    HAS_WINDOW,
+    SIMILAR_TO,
+    recording_node_id,
+    window_node_id,
+)
+from llm.prompt_builder import build_daq_explanation_prompt, build_system_prompt, build_prompt
 from retrieval.retriever import hybrid_retrieve, graph_augment
 import llm.providers  # noqa: F401 — ensure provider registration side-effects run
+
+# Load only the project-local ignored credential file. Environment variables
+# still take precedence, which is appropriate for deployments and CI.
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 # Default Confidence Threshold
 CONFIDENCE_THRESHOLD = 0.5
 
-# Global LLM provider instance: controlled by LLM_PROVIDER env var (default: "mock")
-# Switch to real backend: export LLM_PROVIDER=anthropic
-llm = llm_registry.get(os.getenv("LLM_PROVIDER", "mock"))()
+def _configured_llm() -> Any:
+    """Create the explicitly configured provider; never silently substitute one."""
+    provider = os.environ.get("LLM_PROVIDER", "mock").strip().lower()
+    return llm_registry.get(provider)()
+
+
+# ``mock`` remains the safe default for local tests. Production must set
+# LLM_PROVIDER=gemini|openai|anthropic and its API key; the DAQ API rejects mock answers.
+llm = _configured_llm()
 
 
 def score_confidence(response: str, context_chunks: List[Chunk]) -> float:
@@ -179,3 +200,97 @@ class RAGOrchestrator:
             "confidence": confidence,
             "system_prompt": system_prompt
         }
+
+
+class DAQExplanationError(ValueError):
+    """DAQ explanation inputs lack sufficient traceable computed evidence."""
+
+
+class DAQExplanationOrchestrator:
+    """Explain retrieved DAQ findings; never ask an LLM to perform signal math."""
+
+    def __init__(self, llm_provider: Any, graph_driver: Neo4jSimulationDriver):
+        self.llm = llm_provider
+        self.graph_driver = graph_driver
+
+    @staticmethod
+    def _assert_traceable_evidence(findings: List[Finding]) -> None:
+        """Gate generation on the required raw-data citation fields.
+
+        This is the generation-side integrity rule: absent computed evidence,
+        no LLM call is permitted, so it cannot fabricate missing numbers.
+        """
+        for finding in findings:
+            evidence = finding.evidence
+            required = {"recording_id", "source_path", "channel", "window_id", "sample_range"}
+            missing = [field for field in required if field not in evidence]
+            if missing:
+                raise DAQExplanationError(
+                    f"finding_missing_traceable_evidence:{finding.finding_id}:{','.join(sorted(missing))}"
+                )
+            sample_range = evidence["sample_range"]
+            if not isinstance(sample_range, dict) or not {"sample_start", "sample_end"} <= set(sample_range):
+                raise DAQExplanationError(
+                    f"finding_missing_sample_range:{finding.finding_id}"
+                )
+
+    def explain(
+        self,
+        request: str,
+        findings: List[Finding],
+        conditions: Dict[str, Condition],
+    ) -> Dict[str, Any]:
+        """Build an evidence-only prompt, call the LLM, and return fixed citations."""
+        if not findings:
+            raise DAQExplanationError("no_retrieved_findings_to_explain")
+        self._assert_traceable_evidence(findings)
+        graph_context: list[GraphEdge] = []
+        seen_edges: set[tuple[str, str, str, str]] = set()
+        for finding in findings:
+            recording_id = recording_node_id(finding.recording_id)
+            window_id = window_node_id(finding.window_id or "")
+            # A Recording can have tens of thousands of HAS_WINDOW edges. Only
+            # retain its condition lineage; the cited window gets its own exact
+            # HAS_WINDOW/EXHIBITS_PATTERN/SIMILAR_TO context below.
+            relevant_edges = [
+                edge
+                for edge in self.graph_driver.get_neighbors(recording_id)
+                if edge.type == CAPTURED_UNDER
+            ]
+            relevant_edges.extend(
+                edge
+                for edge in self.graph_driver.get_neighbors(window_id)
+                if edge.type in {HAS_WINDOW, EXHIBITS_PATTERN, SIMILAR_TO}
+            )
+            for edge in relevant_edges:
+                edge_key = (edge.source, edge.target, edge.type, repr(edge.properties))
+                if edge_key not in seen_edges:
+                    graph_context.append(edge)
+                    seen_edges.add(edge_key)
+        prompt = build_daq_explanation_prompt(request, findings, conditions, graph_context)
+        # The prompt is evidence-only and contains an explicit no-computation instruction.
+        assert "Do not calculate, estimate, derive, or invent statistics" in prompt
+        response = self.llm.generate(prompt, system_prompt=DAQ_EXPLANATION_SYSTEM_PROMPT)
+        return {
+            "answer": response,
+            "citations": [
+                {
+                    "label": f"Finding {number}",
+                    "finding_id": finding.finding_id,
+                    "model_version": finding.model_version,
+                    "source_path": finding.evidence["source_path"],
+                    "channel": finding.evidence["channel"],
+                    "window_id": finding.evidence["window_id"],
+                    "sample_range": finding.evidence["sample_range"],
+                    "time_range": finding.evidence.get("time_range"),
+                }
+                for number, finding in enumerate(findings, start=1)
+            ],
+            "finding_count": len(findings),
+        }
+
+
+DAQ_EXPLANATION_SYSTEM_PROMPT = (
+    "Explain supplied DAQ findings only. Never compute or infer numeric results; "
+    "cite finding IDs in prose. Full recording path/channel/range remain in structured citations."
+)

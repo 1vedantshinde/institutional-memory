@@ -5,6 +5,8 @@ technology-specific implementations (e.g., Qdrant vs custom C++ retrieval,
 or PDF vs CAD parsers).
 """
 from abc import ABC, abstractmethod
+import os
+import time
 from typing import Dict, Any, Callable, Type, List, TypeVar, Generic, Optional
 from core.schema import UnifiedDocument, Chunk, Node, Edge
 
@@ -136,6 +138,10 @@ class UnsupportedFormatError(Exception):
     """Raised when no parser exists for a specific file format."""
     pass
 
+
+class LLMProviderUnavailableError(RuntimeError):
+    """A configured LLM provider could not serve a transient request."""
+
 # Global registry mappings
 PARSER_REGISTRY: Dict[str, Type[BaseParser]] = {}
 
@@ -198,3 +204,98 @@ class MockLLM(BaseLLM):
     
     def generate(self, prompt: str, system_prompt: Optional[str] = None) -> str:
         return f"[Mock LLM Response] Answer to query based on prompt size {len(prompt)}"
+
+
+@llm_registry.register("openai")
+class OpenAIResponsesLLM(BaseLLM):
+    """OpenAI Responses API backend for evidence-grounded explanations."""
+
+    def __init__(self, model: Optional[str] = None) -> None:
+        if not os.environ.get("OPENAI_API_KEY"):
+            raise RuntimeError("OPENAI_API_KEY is required when LLM_PROVIDER=openai")
+        try:
+            from openai import OpenAI
+        except ImportError as exc:
+            raise RuntimeError("Install the 'openai' package to use LLM_PROVIDER=openai") from exc
+        self.client = OpenAI()
+        self.model = model or os.environ.get("OPENAI_MODEL", "gpt-6-astra")
+
+    def generate(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+        response = self.client.responses.create(
+            model=self.model,
+            instructions=system_prompt,
+            input=prompt,
+        )
+        output = (response.output_text or "").strip()
+        if not output:
+            raise RuntimeError("OpenAI returned no text output")
+        return output
+
+
+@llm_registry.register("gemini")
+class GeminiLLM(BaseLLM):
+    """Gemini backend using Google's current ``google-genai`` SDK."""
+
+    def __init__(self, model: Optional[str] = None) -> None:
+        if not os.environ.get("GEMINI_API_KEY"):
+            raise RuntimeError("GEMINI_API_KEY is required when LLM_PROVIDER=gemini")
+        try:
+            from google import genai
+            from google.genai import types
+        except ImportError as exc:
+            raise RuntimeError("Install the 'google-genai' package to use LLM_PROVIDER=gemini") from exc
+        self.client = genai.Client()
+        self.types = types
+        self.model = model or os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
+        # Explicitly configured same-provider fallbacks, tried in order only when
+        # the primary model is temporarily unavailable (e.g. 503 overloaded).
+        fallbacks = os.environ.get("GEMINI_FALLBACK_MODELS", "")
+        self.fallback_models = [
+            name.strip() for name in fallbacks.split(",") if name.strip() and name.strip() != self.model
+        ]
+
+    @staticmethod
+    def _is_transient(exc: Exception) -> bool:
+        # Gemini uses 429 for temporary quota exhaustion and 5xx for temporary
+        # service/model capacity failures; OSError covers DNS/connection drops.
+        # Never retry an invalid key, invalid model, or other permanent 4xx error.
+        status_code = getattr(exc, "code", None)
+        if status_code in {429, 500, 502, 503, 504}:
+            return True
+        return status_code is None and (isinstance(exc, OSError) or "ConnectError" in type(exc).__name__)
+
+    def generate(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+        config = self.types.GenerateContentConfig(system_instruction=system_prompt) if system_prompt else None
+        retries = max(0, int(os.environ.get("GEMINI_MAX_RETRIES", "2")))
+        failures: list[str] = []
+        models = [self.model, *getattr(self, "fallback_models", [])]
+        for index, model in enumerate(models):
+            # An overloaded model can take ~20 s to fail, so with another model
+            # still to try, move on after one failure; retries go to the last.
+            attempts = 1 if index < len(models) - 1 else retries + 1
+            for attempt in range(attempts):
+                try:
+                    response = self.client.models.generate_content(
+                        model=model,
+                        contents=prompt,
+                        config=config,
+                    )
+                except Exception as exc:
+                    if not self._is_transient(exc):
+                        raise
+                    if attempt == attempts - 1:
+                        code = getattr(exc, "code", None)
+                        failures.append(
+                            f"{model} ({f'HTTP {code}' if code else type(exc).__name__}, {attempts} attempt(s))"
+                        )
+                        break  # this model is unavailable; try the next configured one
+                    time.sleep(2**attempt)
+                    continue
+                output = (response.text or "").strip()
+                if not output:
+                    raise RuntimeError("Gemini returned no text output")
+                return output
+        raise LLMProviderUnavailableError(
+            f"Gemini is temporarily unavailable: {', '.join(failures)}. "
+            "Try again shortly or set GEMINI_FALLBACK_MODELS."
+        )

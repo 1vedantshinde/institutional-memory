@@ -1,13 +1,17 @@
-domain_name: Generic Industrial Plant
-entity_aliases:
-  P204: P-204
-  P204A: P-204
-  Pump 101: Pump-101
-  Pump 204: P-204
-  Pump101: Pump-101
-  Pump204: P-204
-  SOP 402: SOP-402
-  SOP402: SOP-402
+canonical_columns:
+- Time
+- Vib_Spindle
+- Vib_Table
+- X_Load_Cell
+- Y_Load_Cell
+- Z_Load_Cell
+- Current
+csv_parser:
+  encoding: utf-8
+  encoding_errors: surrogateescape
+  field_size_limit: 1048576
+domain_name: DAQ Condition Intelligence
+entity_aliases: {}
 entity_types:
 - Equipment
 - Procedure
@@ -15,26 +19,53 @@ entity_types:
 - Person
 - Incident
 - Parameter
-glossary:
-- definition: Piping and Instrumentation Diagram
-  meaning: Piping and Instrumentation Diagram
-  term: P&ID
-- definition: Operational Technology
-  meaning: Operational Technology
-  term: OT
-- definition: Standard Operating Procedure
-  meaning: Standard Operating Procedure
-  term: SOP
+- Condition
+- Recording
+- SignalWindow
+- Finding
+expected_column_count: 7
+feature_set:
+  freq_domain:
+  - band_energy_low
+  - band_energy_mid
+  - band_energy_high
+  - spectral_centroid
+  time_domain:
+  - mean
+  - std
+  - rms
+  - peak
+  - crest_factor
+  - kurtosis
+  - skewness
+glossary: []
+quality_policy:
+  on_column_count_mismatch: quarantine
+  on_missing_header: quarantine
+  on_no_valid_header_but_correct_numeric_column_count: quarantine
+  on_non_numeric_signal_values: quarantine
+  on_null_bytes: sanitize_and_log
+  on_unparseable_csv: quarantine
+recording_folder_pattern: '^(?P<condition_id>\d+)_S(?P<S>\d+)_F(?P<F>\d+)_D(?P<D>[\d.]+)$
+
+  '
 relation_types:
 - MAINTAINED_BY
 - PART_OF
 - MENTIONED_IN
 - CAUSED_BY
 - SUPERSEDES
-system_prompt_template: 'You are a knowledge assistant for {domain_name}.
-
-  Answer only using the provided context. Cite sources for every claim.
-
-  If the context is insufficient, say so — never invent information.
+- CAPTURED_UNDER
+- HAS_WINDOW
+- EXHIBITS_PATTERN
+- SIMILAR_TO
+sampling:
+  assumed_hz: null
+system_prompt_template: 'You are a DAQ evidence assistant for {domain_name}. Answer
+  only using provided computed evidence and cite sources. If evidence is insufficient,
+  say so — never invent information.
 
   '
+windowing:
+  window_overlap: 0.5
+  window_size_samples: 2048

@@ -4,24 +4,24 @@ typing-extensions
 fastapi
 uvicorn
 python-multipart
+numpy
+openpyxl
+python-dotenv
 
-# Real LLM backends
+# LLM backends
+openai
+google-genai
 anthropic
 
-# Real PDF parsing
+# PDF text extraction (document knowledge base)
 pypdf
 
-# Real vector store
+# Optional real infrastructure (in-memory fallbacks are used when not configured)
 qdrant-client
-
-# Real graph store
 neo4j
 
 # Neural embeddings + cross-encoder reranking (gate with USE_NEURAL_MODELS=1)
 sentence-transformers
-
-# Secrets / env loading
-python-dotenv
 
 # CAD parsing
 ezdxf
