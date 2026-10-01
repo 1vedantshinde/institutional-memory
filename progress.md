@@ -5,12 +5,16 @@ today. The dated entries after it record, in order, what was built or fixed,
 how, why, and how it was verified. For what the system is and how to run it,
 start with the [README](README.md).
 
-## Project status at a glance — 2026-09-30
+## Project status at a glance — 2026-10-01 (`vaishnavi` branch)
 
-**Overall:** Working end to end on the real corpus. A question asked in the
-web app is scoped to one condition and signal, answered from
-deterministically computed findings, and every claim links to its source
-window.
+**Overall:** Working end to end on the real corpus. A question about a
+specific run (one condition and signal) is answered from deterministically
+computed findings, and every claim links to its source window. A general
+question about the project, machine or vocabulary is answered from the
+knowledge documents in `knowledge_docs/pdfs/`, citing the passages used.
+
+This branch is `main` merged into `vaishnavi` (document-RAG infrastructure),
+plus the Tier-1 knowledge documents (see the 2026-10-01 entries).
 
 | Area | State | Notes |
 |---|---|---|
@@ -22,18 +26,22 @@ window.
 | Chat server (`server.py`) | ✅ Done | Automatic ingest/analysis, reuse of any covering cached analysis, warm start. |
 | Web app (`frontend/`) | ✅ Done | Ask, Dataset Health, Analysis, Evidence, Config, About; mock mode; automated tests. |
 | Tool-wear regression | 🟡 Trained, not served | 161 held-out recordings: MAE 14.3 µm, RMSE 18.9 µm, R² 0.93. Not yet exposed via API/UI. |
+| Knowledge documents (Tier-1 PDFs) | ✅ Done | 4 PDFs indexed at startup (8–12 chunks each); 18 glossary terms in `domain.yaml`; `Document -[:DOCUMENTS]-> Concept` edges; general questions answered from them with `[Source N]` passages. |
+| Document-RAG infrastructure (from `vaishnavi`) | 🟡 Available, mostly optional | Query router, keyword retrieval, pypdf parser, API-key auth used now. Qdrant/Neo4j/Anthropic/neural embeddings work only when configured; eval harness needs real golden answers. |
+| Mixed answers (findings + documents) | ⏳ Not started | A question is answered from one source or the other. |
 | Waveform viewer, findings list | ⏳ Not started | Needs new backend endpoints (`frontend/BACKEND_REQUESTS.md`); UI previews exist on mock data only. |
 
-**Test status (2026-09-30):** backend 53 passed / 2 skipped (skips need the
-live dataset); frontend 43 passed; type check and production build clean.
+**Test status (2026-10-01):** backend 82 passed / 2 skipped (skips need the
+live dataset); frontend 50 passed; type check clean.
 
 **Known issues / open items**
 
 1. Feature statements say "vibration" for every channel, including load cells
    and motor current. The numbers are correct; the wording needs to be
    channel-aware.
-2. Questions must name exactly one condition and one signal; comparisons
-   aren't supported.
+2. Run-specific questions must name exactly one condition and one signal;
+   comparisons aren't supported, and answers don't yet mix findings with
+   document passages.
 3. Backend is reachable from the same machine only (no LAN access yet).
 4. Tool-wear evaluation splits by whole recording, not whole condition; a
    condition-held-out evaluation would be stricter.
@@ -41,6 +49,12 @@ live dataset); frontend 43 passed; type check and production build clean.
    configured in `.env`.
 6. Live-data regression checks for specific quarantined files still need the
    expected file/reason list (see the Step 1–12 audit below).
+7. Document search is keyword-only by default (the default embedder isn't
+   semantic), and PDF tables come out as flat text, so exact table-row lookups
+   (e.g. one condition's recording count) depend on the row's words.
+8. `test_api.py` (root) sends `PUT /config`, which rewrites
+   `config/domain.yaml` and drops its comments. Don't run it against a config
+   you want to keep as-is.
 
 **How to run and verify:** see README §5 (run) and §9 (tests).
 
@@ -694,3 +708,92 @@ as interrupted. Frontend tests pin their own API URLs so a developer's
 question without a condition shows the backend's guidance, and one with a
 condition is answered with citations. Frontend: 43 tests pass, type check and
 build clean.
+
+## Merge of `main` into `vaishnavi` — 2026-10-01
+
+**What:** `vaishnavi` (13 Sep) had document-RAG infrastructure: a query
+router, weighted hybrid retrieval, a real `pypdf` parser, optional
+Qdrant/Neo4j/Anthropic backends, `X-API-Key` auth, structured ingest errors
+and an eval harness. `main` had everything built since: the DAQ pipeline,
+chat server, web app and caching. `main` was merged into `vaishnavi`.
+
+**Conflicts and how they were resolved:** Eight files conflicted. The key one
+was `knowledge/graph_store.py`. `vaishnavi` kept the old dict-based graph
+interface, while `main` had moved to typed `GraphEdge` objects that the DAQ
+provenance graph and its tests depend on. The resolution keeps `main`'s typed
+simulator (with its O(1) edge dedupe) and adds `vaishnavi`'s real Neo4j driver
+behind the same typed interface. Document retrieval's `graph_augment()` now
+uses the string form. In `api/main.py`, `main`'s DAQ API was kept and
+`vaishnavi`'s auth, error handling and RAG-orchestrator change were
+re-applied; `/analyse` is behind the same optional key. Config files are
+unions of both sides.
+
+**Verification:** backend 53 passed / 2 skipped, `test_step10.py` passes,
+`server.py` imports, frontend 43 passed — all before any new feature work.
+
+## Tier-1 knowledge documents — 2026-10-01
+
+**What:** Four explainer PDFs (machine fact sheet, quarantine policy, how a
+Finding is computed, glossary) were added under `knowledge_docs/pdfs/`,
+indexed at startup, linked to concepts in the graph, and made answerable in
+chat. The plan behind this was `Document_Knowledge_Base_Integration_Plan.md`
+(Steps 0–5 of the Tier-1 checklist).
+
+**Findings while implementing (checked, not assumed):**
+- **PDF extraction was already real on this branch.** `vaishnavi` had
+  replaced the simulated parser with `pypdf`; all four PDFs extract their
+  actual text. One risk remained: if extraction failed, the parser decoded the
+  raw PDF bytes as UTF-8 and would have indexed PDF syntax as content. Real
+  PDFs now yield no text (0 chunks, with the reason in metadata) instead.
+- **The glossary had to be wired in, not just added.** The existing glossary
+  scan only ran on the generic document prompt, required spaces around a
+  term (so "…distance?" never matched) and read only `meaning:`. `/chat` also
+  rejected any question without a condition and signal, so "What does RMS
+  mean?" could not work as the plan expected. The plan's list has 18 terms,
+  not 17.
+- **Retrieval needed three fixes.** The keyword index didn't strip
+  punctuation ("kurtosis?" ≠ "kurtosis"). The router gave 80% weight to
+  vector search, but the default embedder hashes text to random vectors, so
+  that weight was pure noise. Fixed-width chunking cut words in half. Before
+  the fixes, "What's the difference between RMS and kurtosis?" retrieved no
+  glossary chunk at all; after, all four test questions retrieve the right
+  document first. The keyword fix alone was enough for the glossary
+  question; the concept links are a second safeguard.
+- **The plan's ontology snippet would have dropped the DAQ types.**
+  `Document`/`Concept` and `DOCUMENTS`/`EXPLAINS`/`RELATED_TO` were appended
+  instead, keeping `Condition`, `Recording`, `CAPTURED_UNDER` and the rest.
+- **Editing `domain.yaml` invalidated every cache.** The dataset fingerprint
+  hashed the whole config file, so adding the glossary forced a full
+  re-profile of the corpus and re-analysis of every scope. Only the
+  parsing/analysis keys feed the fingerprint now, so glossary, ontology and
+  prompt edits never do this again. Because the key scheme changed, the
+  first start after this change re-profiles once and each scope is
+  re-analysed once on first use.
+
+**How:** `ingestion/knowledge_docs.py` indexes the PDFs through the existing
+document pipeline at server startup (`POST /knowledge-docs/ingest`
+re-indexes; `GET /knowledge-docs` lists them) and writes the concept edges
+from a hand-written seed list. `/chat` sends questions without a
+condition/signal to `answer_from_documents()`. That retrieves passages,
+guarantees a place to any document linked to a concept named in the
+question, and asks the LLM for an evidence-only answer citing `[Source N]`.
+If nothing relevant is found, it still asks for a condition and signal.
+Glossary definitions for terms in the question go into both document and DAQ
+prompts. In the DAQ prompt, "condition 4" names a scope, not a term to
+define. The web app renders `[Source N]` chips with the cited passage, and
+splits grouped markers such as `[Source 1, Source 3]`, which the model
+sometimes writes.
+
+**Verification:** 29 new backend tests: real extraction per PDF, chunk word
+boundaries, all 18 glossary terms, matching rules, `DOCUMENTS` edges, the
+right document first for each test question, `/chat` routing, and cache
+fingerprint stability. 7 new frontend tests. Live with Gemini: "What does RMS
+mean?" was answered from the glossary, "Why do some recordings get
+quarantined?" from the policy explainer, and "Condition 4 has an unusually
+high recording count — is that expected?" from the fact sheet (yes: counts
+range from 24 to 39, and condition 4 has 39). All rendered in the browser
+with source chips and passages.
+
+**Not done (deliberately):** mixed answers combining findings and passages;
+layout-aware extraction (Docling) for exact table rows; semantic embeddings
+by default.

@@ -24,8 +24,15 @@ class PDFParser(BaseParser):
             content = ""
             parse_method = f"pypdf_failed:{e}"
 
-        # Fallback: if pypdf found no extractable text, the PDF is likely scanned/image-based
-        if not content:
+        # Fallback: if pypdf found no extractable text, the PDF is likely scanned/image-based.
+        # A real PDF must never be decoded byte-for-byte: that would store PDF
+        # syntax as if it were document text and make it "retrievable".
+        # Index nothing instead (0 chunks is a visible signal); metadata says why.
+        is_real_pdf = content_bytes.lstrip()[:5] == b"%PDF-"
+        if not content and is_real_pdf:
+            if parse_method == "pypdf":
+                parse_method = "no_extractable_text"  # likely scanned; OCR not configured
+        elif not content:
             try:
                 # Last-resort: try decoding bytes as plain text (handles text-based fake PDFs in tests)
                 decoded = content_bytes.decode("utf-8", errors="ignore").strip()

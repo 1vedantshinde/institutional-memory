@@ -294,3 +294,69 @@ DAQ_EXPLANATION_SYSTEM_PROMPT = (
     "Explain supplied DAQ findings only. Never compute or infer numeric results; "
     "cite finding IDs in prose. Full recording path/channel/range remain in structured citations."
 )
+
+
+DOCUMENT_ANSWER_SYSTEM_PROMPT = (
+    "Answer only from the supplied project documents and glossary definitions. "
+    "Never compute or infer numeric results; cite sources as [Source N]."
+)
+
+
+def retrieve_document_sources(question: str, limit: int = 4) -> List[Chunk]:
+    """Best knowledge-document chunks for a question.
+
+    Hybrid retrieval (BM25-led unless neural embeddings are on), then — when
+    the question names a concept linked by a DOCUMENTS edge — that document's
+    best chunk is guaranteed a place, so "what is kurtosis?" reaches the
+    glossary even if other documents also mention the word.
+    """
+    from ingestion.knowledge_docs import documents_for_concepts
+    from core.schema import make_doc_id
+    from retrieval.retriever import bm25_index
+
+    hits = [c for c in hybrid_retrieve(question, top_k=limit * 2) if c.text.strip()]
+    selected: List[Chunk] = []
+    for filename in documents_for_concepts(question):
+        doc_id = make_doc_id("text", filename)
+        if any(c.doc_id == doc_id for c in selected):
+            continue
+        best = next((c for c in hits if c.doc_id == doc_id), None) or next(
+            (c for c in bm25_index.search(question, top_k=50) if c.doc_id == doc_id), None
+        )
+        if best is not None:
+            selected.append(best)
+    for chunk in hits:
+        if len(selected) >= limit:
+            break
+        if all(c.chunk_id != chunk.chunk_id for c in selected):
+            selected.append(chunk)
+    return selected[:limit]
+
+
+def answer_from_documents(question: str, limit: int = 4) -> Optional[Dict[str, Any]]:
+    """Evidence-only answer from the project knowledge documents, or None when
+    nothing relevant was retrieved. Same response shape as DAQ answers, with
+    document citations in ``sources`` (labels ``Source N``) and no findings."""
+    from llm.prompt_builder import build_document_answer_prompt
+
+    sources = retrieve_document_sources(question, limit=limit)
+    if not sources:
+        return None
+    prompt = build_document_answer_prompt(question, sources)
+    response = llm.generate(prompt, system_prompt=DOCUMENT_ANSWER_SYSTEM_PROMPT)
+    return {
+        "answer": response,
+        "citations": [],
+        "finding_count": 0,
+        "sources": [
+            {
+                "label": f"Source {number}",
+                "source_path": chunk.metadata.get("source_path", chunk.doc_id),
+                "doc_id": chunk.doc_id,
+                "chunk_id": chunk.chunk_id,
+                "snippet": " ".join(chunk.text.split())[:400],
+            }
+            for number, chunk in enumerate(sources, start=1)
+        ],
+        "route": "documents",
+    }

@@ -148,12 +148,13 @@ export function MessageList({
               </div>
             ) : msg.error ? (
               <ErrorBubble error={msg.error as ErrorMeta} onRetry={onRetry} />
-            ) : msg.citations && msg.citations.length > 0 ? (
+            ) : msg.citations?.length || msg.sources?.length ? (
               <div className="bg-[var(--surface)] rounded-2xl rounded-tl-md border border-[var(--border)] px-4 py-3 max-w-[600px]">
                 <AnswerRenderer
                   answer={msg.content}
-                  citations={msg.citations}
-                  findingCount={msg.findingCount ?? msg.citations.length}
+                  citations={msg.citations ?? []}
+                  sources={msg.sources ?? []}
+                  findingCount={msg.findingCount ?? msg.citations?.length ?? 0}
                   onCitationClick={onCitationClick}
                 />
               </div>

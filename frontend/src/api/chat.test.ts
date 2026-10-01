@@ -57,3 +57,15 @@ describe('postChat (against MSW)', () => {
     await expect(postChat('q')).rejects.toBeInstanceOf(NetworkError)
   })
 })
+
+describe('postChat — general questions', () => {
+  it('a question without a condition number is answered from the knowledge documents', async () => {
+    const res = await postChat('What does RMS mean?')
+    expect(res.type).toBe('ready')
+    if (res.type === 'ready') {
+      expect(res.data.route).toBe('documents')
+      expect(res.data.sources?.[0].source_path).toBe('glossary.pdf')
+      expect(res.data.finding_count).toBe(0)
+    }
+  })
+})

@@ -136,9 +136,36 @@ def _manifest_fingerprint(manifest: list[dict[str, Any]], config_path: Path) -> 
             "size": stat.st_size,
             "mtime_ns": stat.st_mtime_ns,
         })
-    config_hash = hashlib.sha256(config_path.read_bytes()).hexdigest()
+    config_hash = _analysis_config_hash(config_path)
     encoded = json.dumps({"config": config_hash, "inputs": inputs}, sort_keys=True).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+# Config keys that change how recordings are discovered, parsed, gated or
+# analysed. Everything else in domain.yaml (glossary, ontology types, prompt
+# wording) must not invalidate cached ingests/analyses.
+ANALYSIS_CONFIG_KEYS = (
+    "recording_folder_pattern",
+    "canonical_columns",
+    "expected_column_count",
+    "csv_parser",
+    "quality_policy",
+    "sampling",
+    "windowing",
+    "feature_set",
+)
+
+
+def _analysis_config_hash(config_path: Path) -> str:
+    try:
+        import yaml
+
+        config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        # Unreadable/invalid YAML: fall back to the raw bytes so nothing stale is reused
+        return hashlib.sha256(config_path.read_bytes()).hexdigest()
+    relevant = {key: config.get(key) for key in ANALYSIS_CONFIG_KEYS}
+    return hashlib.sha256(json.dumps(relevant, sort_keys=True, default=str).encode("utf-8")).hexdigest()
 
 
 def _ingest_cache_path(fingerprint: str) -> Path:

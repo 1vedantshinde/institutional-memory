@@ -23,6 +23,8 @@ entity_types:
 - Recording
 - SignalWindow
 - Finding
+- Document
+- Concept
 expected_column_count: 7
 feature_set:
   freq_domain:
@@ -38,7 +40,45 @@ feature_set:
   - crest_factor
   - kurtosis
   - skewness
-glossary: []
+glossary:
+# Plain-language definitions from knowledge_docs/pdfs/glossary.pdf. The prompt
+# builder injects a definition when its term appears in the user's question.
+- term: RMS
+  definition: "A single number that summarises how strong a signal is overall, averaged over a window, the way \"average loudness\" summarises a sound clip."
+- term: Peak
+  definition: "The single largest value (in either direction) seen anywhere in the window — the biggest spike."
+- term: Crest factor
+  definition: "How spiky a signal is: the peak compared to the overall strength (RMS). A high crest factor means occasional sharp spikes on top of a calmer background."
+- term: Kurtosis
+  definition: "A measure of how spiky and rare the extreme moments in a signal are, compared to a smooth, evenly varying signal. Higher kurtosis often shows up around impacts or sudden events."
+- term: Skewness
+  definition: "A measure of whether a signal leans more toward high values or low values overall, rather than being evenly balanced around its average."
+- term: Spectral band energy
+  definition: "How much of a signal's energy falls into a low, medium, or high range of vibration frequency — similar to a bass/mid/treble display."
+- term: Spectral centroid
+  definition: "Roughly, the center of balance of a signal's frequency content — whether energy concentrates toward lower or higher frequencies on average."
+- term: Sampling rate
+  definition: "How many readings per second a sensor recorded. Measured from each recording's own time column, never assumed."
+- term: Window
+  definition: "A short, fixed-length stretch of consecutive sensor readings (2,048 samples here) that all per-window measurements are computed from."
+- term: Baseline
+  definition: "The \"normal\" profile for one specific condition and one specific channel, built only from recordings that passed the quality check for that exact condition."
+- term: Mahalanobis distance
+  definition: "A way of measuring how unusual a window's measurements are compared to its condition's baseline, accounting for the fact some measurements naturally vary more than others."
+- term: Anomaly score
+  definition: "The number that comes out of the Mahalanobis distance calculation for a window. A higher score means the window looks less like the normal pattern for its condition."
+- term: Finding
+  definition: "A window that scored high enough on anomaly to be worth mentioning, together with the plain-language reason and the exact file/channel/range it came from."
+- term: Condition
+  definition: "One specific combination of spindle speed, feed rate and depth of cut (S, F, D) that the machine was run under during a set of recordings."
+- term: Canonical schema
+  definition: "The expected seven-column layout every recording should have. A recording that matches it is called \"canonical\" and is used in analysis."
+- term: Quarantine
+  definition: "Setting a file aside, with a logged reason, instead of using it or trying to repair it, when it doesn't match the canonical schema."
+- term: Raw voltage
+  definition: "The actual unit every channel is recorded in — a direct sensor output that hasn't been converted into a physical unit like g-force, newtons or amps."
+- term: Latin-square design
+  definition: "A way of planning an experiment so every combination of two settings (speed and feed) is paired with a different value of a third setting (depth of cut) exactly once — used across all 25 conditions in this dataset."
 quality_policy:
   on_column_count_mismatch: quarantine
   on_missing_header: quarantine
@@ -59,6 +99,9 @@ relation_types:
 - HAS_WINDOW
 - EXHIBITS_PATTERN
 - SIMILAR_TO
+- DOCUMENTS
+- EXPLAINS
+- RELATED_TO
 sampling:
   assumed_hz: null
 system_prompt_template: 'You are a DAQ evidence assistant for {domain_name}. Answer

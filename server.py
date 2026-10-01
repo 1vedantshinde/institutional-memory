@@ -17,6 +17,8 @@ from fastapi import HTTPException, Response
 from pydantic import BaseModel, Field
 
 import api.main as daq_api
+from core.registry import LLMProviderUnavailableError
+from ingestion import knowledge_docs
 
 
 app = daq_api.app
@@ -24,9 +26,13 @@ app = daq_api.app
 
 def _warm_start() -> None:
     """Restore the DAQ inventory at boot (from its cache when unchanged) so the
-    first question does not have to wait for ingestion."""
+    first question does not have to wait for ingestion, and index the project
+    knowledge documents (a few small PDFs, about a second)."""
     if os.environ.get("DAQ_WARM_START", "1") != "0":
         _start_automatic_ingest()
+    if knowledge_docs.knowledge_docs_enabled():
+        result = knowledge_docs.ingest_knowledge_docs(daq_api.pipeline)
+        print(f"[KnowledgeDocs] indexed {result['documents']} failed={result['failed']}")
 
 
 app.router.on_startup.append(_warm_start)
@@ -162,6 +168,35 @@ def _start_automatic_analysis(condition_id: str, channel: str) -> bool:
     return False
 
 
+def _answer_from_knowledge_docs(question: str) -> dict[str, Any] | None:
+    if not knowledge_docs.knowledge_docs_enabled() or not knowledge_docs.ingested_documents():
+        return None
+    from llm.orchestrator import answer_from_documents, llm
+
+    if llm.__class__.__name__ == "MockLLM":
+        raise HTTPException(status_code=503, detail="A real LLM is not configured. Set LLM_PROVIDER and its API key.")
+    try:
+        return answer_from_documents(question)
+    except LLMProviderUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/knowledge-docs")
+def list_knowledge_docs() -> dict[str, Any]:
+    """Indexed project knowledge documents and their chunk counts."""
+    return {
+        "root": str(knowledge_docs.KNOWLEDGE_DOCS_ROOT),
+        "documents": knowledge_docs.ingested_documents(),
+        "concepts": knowledge_docs.CONCEPTS_PER_DOC,
+    }
+
+
+@app.post("/knowledge-docs/ingest", dependencies=[daq_api.Depends(daq_api.verify_api_key)])
+def reingest_knowledge_docs() -> dict[str, Any]:
+    """Re-index knowledge_docs/pdfs/ (e.g. after adding or replacing a PDF)."""
+    return knowledge_docs.ingest_knowledge_docs(daq_api.pipeline)
+
+
 @app.post("/chat")
 def chat(request: ChatRequest, response: Response) -> dict[str, Any]:
     """Answer a frontend question, automatically preparing the needed evidence.
@@ -173,6 +208,11 @@ def chat(request: ChatRequest, response: Response) -> dict[str, Any]:
     condition_id = request.condition_id or infer_condition_id(request.question)
     channel = request.channel or infer_channel(request.question)
     if not condition_id or not channel:
+        # Not a question about one run's measurements: answer from the project
+        # knowledge documents (glossary, fact sheet, policies) when they cover it.
+        documents_answer = _answer_from_knowledge_docs(request.question)
+        if documents_answer is not None:
+            return documents_answer
         raise HTTPException(
             status_code=422,
             detail=(

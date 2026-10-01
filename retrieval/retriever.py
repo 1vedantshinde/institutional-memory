@@ -12,6 +12,24 @@ from core.schema import Chunk
 from retrieval.vector_store import search
 
 
+_TOKEN_RE = re.compile(r"[a-z0-9]+")
+
+
+def tokenize(text: str) -> List[str]:
+    """Lowercased alphanumeric tokens; punctuation never blocks a match ("kurtosis?" → "kurtosis")."""
+    return _TOKEN_RE.findall(text.lower())
+
+
+def semantic_vectors_enabled() -> bool:
+    """Whether vector similarity carries meaning.
+
+    The default embedder hashes each text to a random vector, so similarity
+    between a query and a chunk is noise. Only neural embeddings
+    (USE_NEURAL_MODELS=1) make vector search worth blending in.
+    """
+    return os.environ.get("USE_NEURAL_MODELS") == "1"
+
+
 class BM25Index:
     """Okapi BM25 index calculation scanning the current vector store payloads."""
 
@@ -21,9 +39,6 @@ class BM25Index:
         points = qdrant.list_all_points()
         if not points:
             return []
-
-        def tokenize(text: str) -> List[str]:
-            return [w.lower() for w in text.split() if w.isalnum() or len(w) > 1]
 
         query_words = tokenize(query)
         doc_count = len(points)
@@ -147,22 +162,10 @@ class MockCrossEncoder:
             except Exception:
                 pass
 
-        if not chunks:
-            return []
-
-        def tokenize(text: str) -> set:
-            return set(w.lower() for w in text.split() if w.isalnum())
-
-        query_tokens = tokenize(query)
-        scored_chunks = []
-        for chunk in chunks:
-            chunk_tokens = tokenize(chunk.text)
-            overlap = len(query_tokens.intersection(chunk_tokens))
-            p_score = overlap / max(len(query_tokens), 1)
-            scored_chunks.append((p_score, chunk))
-
-        scored_chunks.sort(key=lambda x: x[0], reverse=True)
-        return [chunk for score, chunk in scored_chunks]
+        # No cross-encoder available: keep the fused (BM25/RRF) order. Re-sorting
+        # by raw token overlap counted words like "the"/"what" and demoted
+        # better BM25 matches.
+        return list(chunks)
 
 
 cross_encoder = MockCrossEncoder()
@@ -174,7 +177,8 @@ def hybrid_retrieve(query: str, top_k: int = 8) -> List[Chunk]:
     route = classify_query(query)
     weights = route_weights(route)
 
-    vector_hits = search(query, top_k=top_k)
+    # Hash-based mock vectors carry no meaning; don't let them outvote BM25.
+    vector_hits = search(query, top_k=top_k) if semantic_vectors_enabled() else []
     keyword_hits = bm25_index.search(query, top_k=top_k)
     fused = reciprocal_rank_fusion(
         vector_hits,

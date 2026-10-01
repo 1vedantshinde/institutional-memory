@@ -156,14 +156,48 @@ A supervised regression model (gradient-boosted trees) predicts tool wear in
 trains from the command line and writes a model and an evaluation report
 locally. It is **not yet served by the API** (see §11).
 
+### Project knowledge documents
+
+Short explainer PDFs in `knowledge_docs/pdfs/` let the assistant answer
+questions *about* the project as well as about specific runs:
+
+| Document | Explains |
+|---|---|
+| `machine_fact_sheet.pdf` | The S/F/D settings, the 25 conditions as a 5×5 Latin-square experiment, recording counts per condition, raw-voltage channels, sampling rate |
+| `quarantine_policy_explainer.pdf` | Why files are quarantined instead of repaired, and the rejection reasons |
+| `finding_explainer.pdf` | How a Finding is computed, step by step, in plain language |
+| `glossary.pdf` | RMS, kurtosis, crest factor, spectral features, Mahalanobis distance and other terms |
+
+At startup, the chat server extracts their text, splits it into chunks,
+indexes the chunks for keyword search, and links each document to the
+concepts it explains in the knowledge graph (`Document -[:DOCUMENTS]->
+Concept`). The glossary terms are also in `config/domain.yaml`. When a
+question uses one, its definition goes into the prompt, so "what does RMS
+mean?" gets the project's own definition. These documents contain
+explanations only, never measurements from individual runs.
+
+To add a document, drop the PDF into `knowledge_docs/pdfs/` and restart, or
+call `POST /knowledge-docs/ingest`. To link it to concepts, add it to
+`CONCEPTS_PER_DOC` in `ingestion/knowledge_docs.py`.
+
 ---
 
 ## 3. What happens when you ask a question
 
-The chat server works out the scope from the question itself. It needs
-**one condition number and one signal**: "condition 4" plus "spindle
-vibration", "X load", "motor current" and so on. Without both, it replies
-with a short message asking for them.
+The chat server first works out what kind of question it is:
+
+- **About a specific run's behaviour.** The question names **one condition
+  number and one signal**: "condition 4" plus "spindle vibration", "X load",
+  "motor current" and so on. It is answered from computed findings, as
+  described below. Findings are cited as `[Finding N]`.
+- **About the project, machine or vocabulary.** Anything else, such as
+  *"What does kurtosis mean?"*, *"Why are files quarantined?"* or
+  *"Condition 4 has a lot of recordings — is that expected?"*. It is
+  answered from the knowledge documents, citing passages as `[Source N]`.
+  If the documents don't cover it either, the server asks for a condition
+  and a signal.
+
+For a run-specific question:
 
 ```
 Question ──► Is the dataset inventory loaded?
@@ -273,21 +307,29 @@ as mock data.
 
 | Variable | Purpose |
 |---|---|
-| `LLM_PROVIDER` | `gemini` (default) or `openai`. `mock` is for tests only; the DAQ query path refuses to answer with it. |
+| `LLM_PROVIDER` | `gemini` (default), `openai` or `anthropic`. `mock` is for tests only; the chat refuses to answer with it. |
 | `GEMINI_API_KEY`, `GEMINI_MODEL` | Gemini credentials and primary model. |
 | `GEMINI_FALLBACK_MODELS` | Comma-separated models to try in order when the primary is temporarily unavailable (overloaded, rate-limited, network drop). Invalid-key or bad-request errors are never retried. |
 | `GEMINI_MAX_RETRIES` | Retries for the last model in the list. Earlier models are tried once each so a busy model doesn't stall the answer. |
 | `OPENAI_API_KEY`, `OPENAI_MODEL` | OpenAI alternative. |
+| `ANTHROPIC_API_KEY` | Anthropic alternative. |
 | `DAQ_DATASET_ROOT`, `DAQ_CONFIG_PATH` | Dataset and config locations (default `dataset/Readngs_DAQ_Data`, `config/domain.yaml`). |
 | `DAQ_WARM_START` | Set to `0` to stop the chat server loading the dataset inventory at startup. |
+| `KNOWLEDGE_DOCS_ENABLED` | Set to `0` to skip indexing `knowledge_docs/pdfs/` (general questions then get the "name a condition and signal" reply). |
+| `API_KEY` | When set, write endpoints (`/ingest`, `/ingest-folder`, `/analyse`, `PUT /config`, `/knowledge-docs/ingest`, legacy ingest) require an `X-API-Key` header. The web app doesn't send one yet, so leave it empty for local use. |
+| `QDRANT_URL`, `NEO4J_URI` (+ user/password), `USE_NEURAL_MODELS`, `EMBEDDING_DIM` | Optional real infrastructure for the document knowledge base. Without them, in-memory equivalents are used. `docker compose up -d` starts Qdrant and Neo4j. |
 
 ### Domain configuration (`config/domain.yaml`)
 
 This file describes the domain rather than the code: the canonical channel
 names and expected column count, the folder-name pattern that encodes
 condition/S/F/D, quality-gate policy, feature bands, windowing defaults, the
-graph's entity and relation types, and the LLM's system instruction. It can
-be viewed and hot-reloaded through `GET/PUT /config` or the Config page.
+graph's entity and relation types (including `Document`/`Concept` and
+`DOCUMENTS`), the glossary, and the LLM's system instruction. It can be viewed
+and hot-reloaded through `GET/PUT /config` or the Config page. Only the
+parsing/analysis keys feed the cache fingerprint, so glossary, ontology or
+prompt edits never force a re-analysis. Saving through `PUT /config` rewrites
+the file, so YAML comments in it are not preserved.
 
 ### Frontend (`frontend/.env.local`; `frontend/.env.example` lists every option)
 
@@ -315,11 +357,15 @@ automated checks. Interactive documentation is served at
 | `GET /analyse/status` | `idle`, `running`, `complete` (with counts) or an error. |
 | `POST /query` | Scoped question with explicit `condition_id` / `channel` filters and `top_k`. |
 | `GET` / `PUT /config` | Read or hot-reload the domain configuration. |
+| `GET /knowledge-docs` | Indexed knowledge documents, their chunk counts and linked concepts. |
+| `POST /knowledge-docs/ingest` | Re-index `knowledge_docs/pdfs/` after adding or replacing a PDF. |
+| `POST /ingest-folder`, `/ingest/file`, `/ingest/graph` | Document knowledge base: index any supported documents (PDF, DXF, e-mail, Python) or inject validated graph nodes/edges. |
 
 Answers use the same shape everywhere: `answer` (Markdown text with
-`[Finding N]` markers), `citations` (each with finding ID, model version,
-source file, channel, window, sample range and, when confirmed, time range)
-and `finding_count`.
+`[Finding N]` or `[Source N]` markers), `citations` (findings: finding ID,
+model version, source file, channel, window, sample range and, when
+confirmed, time range), `finding_count`, and, for document answers,
+`sources` (label, file, passage) with `route: "documents"`.
 
 ---
 
@@ -329,7 +375,8 @@ Reading 41 GB is slow, so derived results are saved under
 `runtime/daq_cache/` (git-ignored):
 
 - **Ingestion cache.** The inventory is keyed by a fingerprint of every file's
-  path, size and modification time plus the config. An unchanged dataset
+  path, size and modification time, plus the config keys that affect parsing
+  and analysis. An unchanged dataset
   reloads in about 1.5 seconds; any change triggers a fresh profile.
 - **Analysis cache.** Windows, features, baselines and findings are saved per
   analysis scope and settings. When you ask a question, any saved analysis
@@ -358,7 +405,8 @@ To force a recompute after changing the data, send `"force": true` to
 
 | Suite | Command | Covers |
 |---|---|---|
-| Backend | `python3 -m pytest -q` | Quality gate, windowing, features, baselines, anomalies, leakage-safe splits, graph, retrieval, evidence-only prompting, API, chat scope parsing, cache reuse, LLM fallback. Uses small synthetic data, so no dataset is needed. |
+| Backend | `python3 -m pytest -q` | Quality gate, windowing, features, baselines, anomalies, leakage-safe splits, graph, retrieval, evidence-only prompting, API, chat scope parsing, cache reuse, LLM fallback, and the knowledge documents (real text extraction, chunking, glossary matching, `DOCUMENTS` edges, per-question retrieval, `/chat` routing). Uses small synthetic data plus the committed PDFs, so no dataset is needed. |
+| Document retrieval eval | `python3 eval/run_eval.py` | Recall@8, query routing and answer confidence over `eval/golden_set.json`. Fill in real `expected_doc_ids` first; until then it reports failures by design. |
 | Live-data checks | `DAQ_DATASET_ROOT=… python3 -m pytest -q tests/test_manifest.py tests/test_quality.py` | Runs the manifest and quality gate against the real corpus when it's mounted. |
 | Frontend | `cd frontend && npx vitest run` | Chat flow (all backend states), Dataset/Analysis/Config pages, parsing and rendering, run against mock HTTP handlers. |
 | Frontend types / build | `npx tsc --noEmit`, `npx vite build` | Type safety and production bundle. |
@@ -374,10 +422,14 @@ To force a recompute after changing the data, send `"force": true` to
 | `ingestion/` | Dataset discovery (manifest), CSV quality gate, DAQ parser and pipeline. |
 | `signal/` | Sampling rate, gap filling, windowing and features. |
 | `analytics/` | Per-condition baselines, anomaly detection, leakage-safe splits, tool-wear model. |
-| `knowledge/` | Provenance graph (ontology and in-memory graph store). |
-| `retrieval/` | Metadata index, feature store and DAQ retriever. |
-| `llm/` | Evidence-only prompt builder and explanation orchestrator. |
+| `knowledge/` | Provenance graph (ontology and graph store: in-memory, or real Neo4j when configured) and entity extraction. |
+| `retrieval/` | DAQ metadata index, feature store and retriever; document hybrid retrieval (keyword + optional vectors, query router, reranking, graph augmentation). |
+| `llm/` | Evidence-only prompt builders (findings and documents) and orchestrators; extra LLM providers (Anthropic). |
 | `core/` | Shared data models, config loading/hot-reload, and plugin registries (including the Gemini/OpenAI providers). |
+| `knowledge_docs/pdfs/` | Project knowledge documents answered from in chat (see §2). |
+| `ingestion/knowledge_docs.py` | Indexes those PDFs and links them to concepts. |
+| `eval/` | Document-retrieval evaluation harness and golden questions. |
+| `docker-compose.yml` | Optional Qdrant + Neo4j services. |
 | `config/domain.yaml` | Domain configuration (see §6). |
 | `train_tool_wear_model.py` | Command-line training and evaluation for the tool-wear model. |
 | `frontend/` | React web app (see its README). |
@@ -385,8 +437,9 @@ To force a recompute after changing the data, send `"force": true` to
 | `runtime/`, `artifacts/`, `quarantine/`, `uploads/` | Generated locally: caches, trained models, rejection logs, uploads. Git-ignored. |
 | `KNOWLEDGE_BASE.md`, `progress.md` | Blueprint and build log. |
 
-The document/PDF/CAD/e-mail parsers and text retrieval pieces come from the
-platform's original general-purpose design and are kept for compatibility.
+The document parsers (PDF, DXF/CAD, e-mail, Python) and text retrieval come
+from the platform's general-purpose design. The project knowledge documents
+use them, and they can index any other supported documents.
 The scripts about **MyFixit / Qwen** (`train*.py`, `evaluate_qwen.py`,
 `golden_test_suite.py`, `build_kg.py`, `graph_retriever.py`, `yimplement.py`,
 `test.py`) are a separate, earlier experiment: a repair-manual assistant. They
@@ -402,13 +455,21 @@ aren't part of the DAQ application.
   corpus.
 - Chat server with automatic ingestion/analysis, cache reuse and LLM fallback.
 - Web app with all six pages, mock mode and automated tests.
+- Questions about the project, machine and terms answered from the knowledge
+  documents, with cited passages.
 - Tool-wear model: on 161 held-out recordings it scored MAE 14.3 µm,
   RMSE 18.9 µm, R² 0.93 (split by whole recordings, so no window leakage).
 
 **Known limitations**
 
-- **Questions must name one condition and one signal.** Comparisons across
-  signals or conditions aren't supported yet.
+- **Run-specific questions must name one condition and one signal.**
+  Comparisons across signals or conditions aren't supported yet.
+- **No mixed answers yet.** A question is answered either from findings or
+  from the documents, never both together.
+- **Document search is keyword-based by default.** The default embedder
+  isn't semantic, so vector search is switched off unless
+  `USE_NEURAL_MODELS=1` (and the documents are re-indexed with it). Tables in
+  PDFs are extracted as plain text, not structured rows.
 - **The first analysis of a new condition + channel takes time.** Every
   answer after that uses the cache.
 - **Load-cell and current answers can use vibration wording.** Plain-language
@@ -434,6 +495,9 @@ aren't part of the DAQ application.
 4. Optional LAN access (bind the backend to the network and allow the
    frontend's origin).
 5. Multi-signal and cross-condition questions.
+6. Mixed answers that combine document passages with findings in one reply.
+7. Layout-aware PDF extraction (e.g. Docling), so table rows such as
+   per-condition recording counts can be retrieved exactly.
 
 ---
 
@@ -443,7 +507,8 @@ aren't part of the DAQ application.
 |---|---|
 | `Address already in use` when starting a server | Another copy is already running on that port. Stop it (`ss -ltnp` shows who owns the port) or use a different port. |
 | Status dots in the app are red | The backend isn't running, or the URLs in `frontend/.env.local` or the Settings drawer point to the wrong port. |
-| Chat says "State both a condition and one signal" | Include a condition number and a signal, e.g. *"motor current for condition 4"*. |
+| Chat says "State both a condition and one signal" | The question wasn't about a specific run, and the knowledge documents don't cover it. For measured behaviour, include a condition number and a signal, e.g. *"motor current for condition 4"*. |
+| A general question gets no document answer | Check `GET /knowledge-docs` lists the PDFs. If not, check the startup log line `[KnowledgeDocs]`, or call `POST /knowledge-docs/ingest`. |
 | "The language model is busy or not configured" | The provider returned 503/429, or the API key is missing. Retry, or set `GEMINI_FALLBACK_MODELS`. |
 | Answer takes a long time the first time | That condition and signal is being analysed for the first time. The progress card shows it, and later questions are fast. |
 | Analysis page shows "already running" | Only one analysis runs at a time. The page follows the running job and you can start yours when it finishes. |

@@ -13,25 +13,35 @@ export interface ParsedAnswer {
   segments: Array<{ text: string; marker?: string; label?: string; findingKey?: string }>
 }
 
-const FINDING_RE = /\[Finding (\d+)\]/g
+// [Finding N] cites a computed finding; [Source N] a knowledge-document passage.
+// Models sometimes group them — "[Source 1, Source 3]" or "[Finding 1, 2]" —
+// so a bracket may hold several, each becoming its own chip.
+const MARKER_RE = /\[((?:Finding|Source) \d+(?:\s*[,;&]\s*(?:(?:and\s+)?(?:Finding|Source)\s+)?\d+)*)\]/g
+const ITEM_RE = /(?:(Finding|Source)\s+)?(\d+)/g
 
 export function parseAnswerSegments(answer: string): ParsedAnswer['segments'] {
   const segments: ParsedAnswer['segments'] = []
   let lastIndex = 0
   let match: RegExpExecArray | null
 
-  FINDING_RE.lastIndex = 0
-  while ((match = FINDING_RE.exec(answer)) !== null) {
+  MARKER_RE.lastIndex = 0
+  while ((match = MARKER_RE.exec(answer)) !== null) {
     const text = answer.slice(lastIndex, match.index)
     if (text) segments.push({ text })
-    const n = match[1]
-    segments.push({
-      text: '',
-      marker: `Finding ${n}`,
-      label: `F${n}`,
-      findingKey: `Finding ${n}`,
-    })
-    lastIndex = FINDING_RE.lastIndex
+    let kind = 'Finding'
+    let item: RegExpExecArray | null
+    ITEM_RE.lastIndex = 0
+    while ((item = ITEM_RE.exec(match[1])) !== null) {
+      kind = item[1] ?? kind // "[Finding 1, 2]" → both are findings
+      const n = item[2]
+      segments.push({
+        text: '',
+        marker: `${kind} ${n}`,
+        label: `${kind === 'Source' ? 'S' : 'F'}${n}`,
+        findingKey: `${kind} ${n}`,
+      })
+    }
+    lastIndex = MARKER_RE.lastIndex
   }
   const tail = answer.slice(lastIndex)
   if (tail) segments.push({ text: tail })

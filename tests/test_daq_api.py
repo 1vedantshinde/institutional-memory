@@ -83,6 +83,14 @@ def test_daq_ingest_starts_background_profile_by_default(tmp_path: Path) -> None
 
     assert response.status_code == 202
     assert response.json() == {"status": "running", "profile_url": "/profile"}
+    # Let the background job finish: a still-running ingest makes the next
+    # test's POST /ingest return 409 "already running" (intermittent failure).
+    import time
+
+    deadline = time.monotonic() + 10
+    while api_main.daq_state.ingest_status == "running" and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert api_main.daq_state.ingest_status != "running"
 
 
 def test_analysis_starts_in_the_background_by_default(tmp_path: Path) -> None:
@@ -101,3 +109,22 @@ def test_analysis_starts_in_the_background_by_default(tmp_path: Path) -> None:
 
     assert response.status_code == 202
     assert response.json() == {"status": "running", "analysis_status_url": "/analyse/status"}
+
+
+def test_cache_fingerprint_ignores_glossary_and_ontology_edits(tmp_path) -> None:
+    """Editing definitions or graph types must not force every analysis to re-run."""
+    import yaml
+    import api.main as daq_api
+
+    base = {"recording_folder_pattern": "^(?P<condition_id>\\d+)$", "windowing": {"window_size_samples": 2048},
+            "glossary": [], "entity_types": ["Condition"]}
+    path = tmp_path / "domain.yaml"
+    path.write_text(yaml.safe_dump(base))
+    before = daq_api._analysis_config_hash(path)
+
+    path.write_text(yaml.safe_dump({**base, "glossary": [{"term": "RMS", "definition": "strength"}],
+                                    "entity_types": ["Condition", "Document"], "system_prompt_template": "x"}))
+    assert daq_api._analysis_config_hash(path) == before
+
+    path.write_text(yaml.safe_dump({**base, "windowing": {"window_size_samples": 1024}}))
+    assert daq_api._analysis_config_hash(path) != before
