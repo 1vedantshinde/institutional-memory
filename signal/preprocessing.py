@@ -6,6 +6,7 @@ import math
 import statistics
 from dataclasses import dataclass
 from typing import Sequence
+import numpy as np
 
 
 class SamplingRateError(ValueError):
@@ -18,7 +19,7 @@ class ChannelPreprocessingError(ValueError):
 
 @dataclass(frozen=True)
 class PreprocessedChannel:
-    values: list[float]
+    values: Sequence[float]
     nan_count: int
     sampling_rate_hz: float | None = None
 
@@ -31,6 +32,16 @@ def compute_sampling_rate(time_values: Sequence[float]) -> float:
     """
     if len(time_values) < 2:
         raise SamplingRateError("insufficient_time_samples")
+    if isinstance(time_values, np.ndarray) and time_values.dtype == float:
+        if not np.all(np.isfinite(time_values)):
+            raise SamplingRateError("non_finite_time_value")
+        deltas = np.diff(time_values)
+        if np.any(deltas <= 0):
+            raise SamplingRateError("non_monotonic_time")
+        median_delta = float(np.median(deltas))
+        if median_delta <= 0 or not math.isfinite(median_delta):
+            raise SamplingRateError("invalid_time_delta")
+        return 1.0 / median_delta
     if any(not math.isfinite(value) for value in time_values):
         raise SamplingRateError("non_finite_time_value")
 
@@ -56,8 +67,11 @@ def confirm_sampling_rate(
     return configured_hz
 
 
-def interpolate_nans(values: Sequence[float]) -> tuple[list[float], int]:
+def interpolate_nans(values: Sequence[float]) -> tuple[Sequence[float], int]:
     """Fill NaNs per channel by linear interpolation while preserving indices."""
+    if isinstance(values, np.ndarray) and values.dtype == float:
+        if not np.isnan(values).any():
+            return values, 0
     prepared = [float(value) for value in values]
     missing = [index for index, value in enumerate(prepared) if math.isnan(value)]
     if not missing:

@@ -90,6 +90,10 @@ class Neo4jSimulationDriver:
         """``"<source> -[:TYPE]-> <target>"`` strings for prompt rendering."""
         return [f"{edge.source} -[:{edge.type}]-> {edge.target}" for edge in self.get_neighbors(node_id)]
 
+    def get_node(self, node_id: str) -> Optional[dict[str, Any]]:
+        """Return node metadata dictionary if node exists, else None."""
+        return self.nodes.get(str(node_id))
+
     def query(self, query_str: str, params: Optional[dict[str, Any]] = None) -> list[dict[str, Any]]:
         """Raw Cypher is not supported by the simulation; returns no rows."""
         return []
@@ -139,6 +143,18 @@ class Neo4jRealDriver:
 
     def get_neighbor_triplets(self, node_id: str) -> list[str]:
         return [f"{edge.source} -[:{edge.type}]-> {edge.target}" for edge in self.get_neighbors(node_id)]
+
+    def get_node(self, node_id: str) -> Optional[dict[str, Any]]:
+        query = "MATCH (n {name: $name}) RETURN labels(n) AS labels, properties(n) AS props"
+        with self._driver.session() as session:
+            result = session.run(query, name=node_id).single()
+            if result:
+                return {
+                    "label": result["labels"][0] if result["labels"] else "Entity",
+                    "value": node_id,
+                    "properties": dict(result["props"] or {}),
+                }
+            return None
 
     @property
     def nodes(self) -> dict[str, Any]:

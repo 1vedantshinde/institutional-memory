@@ -39,19 +39,10 @@ export function WaveformsPage() {
 
   return (
     <div className="flex flex-col h-full overflow-y-auto">
-      {/* Preview banner */}
-      <div className="flex items-center gap-2 px-4 py-2 bg-[var(--warn)]/10 border-b border-[var(--warn)]/20 shrink-0">
-        <AlertTriangle size={13} className="text-[var(--warn)]" />
-        <span className="text-xs text-[var(--warn)] font-medium">
-          Preview — backend endpoint not implemented yet
-        </span>
-        <Badge variant="warn" className="text-[10px]">GET /findings · GET /recordings/:id/windows/:windowId/signal</Badge>
-      </div>
-
       <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--border)] shrink-0">
-        <Activity size={14} className="text-[var(--muted)]" />
+        <Activity size={14} className="text-[var(--accent)]" />
         <span className="text-sm font-medium">Waveforms & Findings</span>
-        <Badge variant="warn" className="text-[10px]">mock only</Badge>
+        <Badge variant="ok" className="text-[10px]">Live Data</Badge>
       </div>
 
       <div className="flex-1 p-4 md:p-6 max-w-4xl mx-auto w-full space-y-6">
@@ -81,7 +72,7 @@ export function WaveformsPage() {
 
         {findings && findings.length > 0 && (
           <Card>
-            <CardHeader><CardTitle>Anomalous windows</CardTitle></CardHeader>
+            <CardHeader><CardTitle>Anomalous windows ({findings.length})</CardTitle></CardHeader>
             <CardContent>
               <div className="space-y-2">
                 {findings.map((f) => (
@@ -90,7 +81,8 @@ export function WaveformsPage() {
                     onClick={() => {
                       setSelectedFinding(f.finding_id)
                       setSelectedWindowId(f.window_id)
-                      setRecordingId('12') // mock recording id
+                      const recId = f.source_path ? (f.source_path.split('/').pop()?.replace(/\.csv$/, '') ?? f.window_id.split(':')[0]) : f.window_id.split(':')[0]
+                      setRecordingId(recId)
                     }}
                     className={[
                       'w-full text-left px-3 py-2 rounded-lg border transition-colors text-sm',

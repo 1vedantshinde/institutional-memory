@@ -44,8 +44,12 @@ react(),
       port: parseInt(env.PORT || '5173'),
       strictPort: true,
       watch: {
+        usePolling: true,
+        interval: 1000,
         ignored: [
           '**/.figma/**',
+          '**/node_modules/**',
+          '**/.git/**',
         ],
       },
       proxy: {

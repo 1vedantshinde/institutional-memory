@@ -13,24 +13,15 @@ export function ToolWearPage() {
 
   return (
     <div className="flex flex-col h-full overflow-y-auto">
-      {/* Preview banner */}
-      <div className="flex items-center gap-2 px-4 py-2 bg-[var(--warn)]/10 border-b border-[var(--warn)]/20 shrink-0">
-        <AlertTriangle size={13} className="text-[var(--warn)]" />
-        <span className="text-xs text-[var(--warn)] font-medium">
-          Preview — backend endpoint not implemented yet
-        </span>
-        <Badge variant="warn" className="text-[10px]">GET /tool-wear/evaluation</Badge>
-      </div>
-
       <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--border)] shrink-0">
-        <BarChart2 size={14} className="text-[var(--muted)]" />
+        <BarChart2 size={14} className="text-[var(--accent)]" />
         <span className="text-sm font-medium">Tool Wear Prediction</span>
-        <Badge variant="warn" className="text-[10px]">mock only</Badge>
+        <Badge variant="ok" className="text-[10px]">Live Model Evaluation</Badge>
       </div>
 
       <div className="flex-1 p-4 md:p-6 max-w-3xl mx-auto w-full space-y-6">
-        <div className="px-4 py-3 rounded-lg border border-[var(--warn)]/20 bg-[var(--warn)]/5 text-sm text-[var(--muted)]">
-          Tool-wear prediction is trained offline via a CLI script producing <code className="font-mono bg-[var(--surface-2)] px-1 rounded">model.joblib</code> and <code className="font-mono bg-[var(--surface-2)] px-1 rounded">evaluation.json</code>. This page reads the evaluation results via a proposed <code className="font-mono bg-[var(--surface-2)] px-1 rounded">GET /tool-wear/evaluation</code> endpoint that does not yet exist.
+        <div className="px-4 py-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] text-sm text-[var(--muted)]">
+          Tool-wear regression model evaluation metrics loaded from <code className="font-mono bg-[var(--surface)] px-1 py-0.5 rounded text-[var(--text)]">artifacts/tool_wear/evaluation.json</code>.
         </div>
 
         {isLoading && <div className="h-48 shimmer rounded-xl" />}

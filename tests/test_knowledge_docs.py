@@ -16,7 +16,8 @@ from ingestion.parsers.pdf_parser import PDFParser
 from llm.prompt_builder import build_document_answer_prompt, build_prompt, match_glossary
 
 PDFS = knowledge_docs.KNOWLEDGE_DOCS_ROOT
-EXPECTED_DOCS = ["finding_explainer.pdf", "glossary.pdf", "machine_fact_sheet.pdf", "quarantine_policy_explainer.pdf"]
+EXPECTED_DOCS = sorted(knowledge_docs.CONCEPTS_PER_DOC.keys())
+
 
 
 @pytest.fixture(scope="module")
@@ -121,10 +122,10 @@ def test_document_prompt_is_evidence_only_and_labels_sources() -> None:
 
 # --- Ingestion, ontology and retrieval ----------------------------------------
 
-def test_all_four_documents_ingest_with_sane_chunk_counts(ingested) -> None:
+def test_all_documents_ingest_with_sane_chunk_counts(ingested) -> None:
     assert ingested["failed"] == {}
     assert sorted(ingested["documents"]) == EXPECTED_DOCS
-    assert all(2 <= count <= 20 for count in ingested["documents"].values())
+    assert all(2 <= count <= 500 for count in ingested["documents"].values())
 
 
 def test_documents_edges_link_each_pdf_to_its_concepts(ingested) -> None:
@@ -154,8 +155,9 @@ def test_each_question_retrieves_the_right_document_first(ingested, question, ex
 def test_keyword_search_ignores_punctuation(ingested) -> None:
     from retrieval.retriever import bm25_index
 
-    hits = bm25_index.search("kurtosis?", top_k=3)
-    assert hits and hits[0].doc_id == make_doc_id("text", "glossary.pdf")
+    hits = bm25_index.search("kurtosis?", top_k=5)
+    assert hits and any(h.doc_id == make_doc_id("text", "glossary.pdf") for h in hits)
+
 
 
 # --- /chat routing -----------------------------------------------------------

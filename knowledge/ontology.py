@@ -1,23 +1,80 @@
-"""Typed DAQ provenance ontology and graph population helpers."""
+"""Typed DAQ, Document, and Organizational provenance ontology and graph population helpers."""
 
 from __future__ import annotations
 
-from typing import Iterable
+from typing import Any, Dict, Iterable, Optional
 
 from core.schema import Condition, Finding, Recording, SignalWindow
 from knowledge.graph_store import Neo4jSimulationDriver
 
 
+# DAQ Relation Types
 CAPTURED_UNDER = "CAPTURED_UNDER"
 HAS_WINDOW = "HAS_WINDOW"
 EXHIBITS_PATTERN = "EXHIBITS_PATTERN"
+OCCURRED_DURING = "OCCURRED_DURING"
+
+# Documentation Relation Types
+DOCUMENTS = "DOCUMENTS"
+PART_OF = "PART_OF"
+REQUIRES = "REQUIRES"
+CAUSED_BY = "CAUSED_BY"
+EXPLAINS = "EXPLAINS"
+
+# Email / Organizational Relation Types
+SENT = "SENT"
+RECEIVED = "RECEIVED"
+PART_OF_THREAD = "PART_OF_THREAD"
+WORKS_AT = "WORKS_AT"
+MENTIONS = "MENTIONS"
+DISCUSSES = "DISCUSSES"
+
+# Cross-Source Relation Types
+RELATED_TO = "RELATED_TO"
+CORROBORATES = "CORROBORATES"
+MAINTAINED_BY = "MAINTAINED_BY"
 SIMILAR_TO = "SIMILAR_TO"
-DAQ_RELATION_TYPES = {CAPTURED_UNDER, HAS_WINDOW, EXHIBITS_PATTERN, SIMILAR_TO}
+SUPERSEDES = "SUPERSEDES"
+MENTIONED_IN = "MENTIONED_IN"
+
+DAQ_RELATION_TYPES = {
+    CAPTURED_UNDER,
+    HAS_WINDOW,
+    EXHIBITS_PATTERN,
+    OCCURRED_DURING,
+    SIMILAR_TO,
+}
+
+UNIFIED_RELATION_TYPES = {
+    CAPTURED_UNDER,
+    HAS_WINDOW,
+    EXHIBITS_PATTERN,
+    OCCURRED_DURING,
+    DOCUMENTS,
+    PART_OF,
+    REQUIRES,
+    CAUSED_BY,
+    EXPLAINS,
+    SENT,
+    RECEIVED,
+    PART_OF_THREAD,
+    WORKS_AT,
+    MENTIONS,
+    DISCUSSES,
+    RELATED_TO,
+    CORROBORATES,
+    MAINTAINED_BY,
+    SIMILAR_TO,
+    SUPERSEDES,
+    MENTIONED_IN,
+}
 
 
 class OntologyError(ValueError):
-    """A DAQ graph relationship is missing required typed provenance."""
+    """A graph relationship is missing required typed provenance or violates ontology constraints."""
 
+
+# --- Node ID Generators ------------------------------------------------------
 
 def condition_node_id(condition_id: str) -> str:
     return f"condition:{condition_id}"
@@ -27,6 +84,10 @@ def recording_node_id(recording_id: str) -> str:
     return f"recording:{recording_id}"
 
 
+def session_node_id(session_id: Any) -> str:
+    return f"session:{session_id}"
+
+
 def window_node_id(window_id: str) -> str:
     return f"window:{window_id}"
 
@@ -34,6 +95,69 @@ def window_node_id(window_id: str) -> str:
 def finding_node_id(finding_id: str) -> str:
     return f"finding:{finding_id}"
 
+
+def event_node_id(event_id: str) -> str:
+    return f"event:{event_id}"
+
+
+def component_node_id(name: str) -> str:
+    clean = name.strip().lower().replace(" ", "_").replace("-", "_")
+    return f"component:{clean}"
+
+
+def fault_node_id(name: str) -> str:
+    clean = name.strip().lower().replace(" ", "_").replace("-", "_")
+    return f"fault:{clean}"
+
+
+def process_node_id(name: str) -> str:
+    clean = name.strip().lower().replace(" ", "_").replace("-", "_")
+    return f"process:{clean}"
+
+
+def procedure_node_id(name: str) -> str:
+    clean = name.strip().lower().replace(" ", "_").replace("-", "_")
+    return f"procedure:{clean}"
+
+
+def parameter_node_id(name: str) -> str:
+    clean = name.strip().lower().replace(" ", "_").replace("-", "_")
+    return f"parameter:{clean}"
+
+
+def channel_node_id(name: str) -> str:
+    return f"channel:{name.strip()}"
+
+
+def person_node_id(name: str) -> str:
+    clean = name.strip().lower().replace(" ", "_")
+    return f"person:{clean}"
+
+
+def organization_node_id(name: str) -> str:
+    clean = name.strip().lower().replace(" ", "_")
+    return f"org:{clean}"
+
+
+def email_node_id(msg_id: str) -> str:
+    clean = msg_id.strip().strip("<>").replace(" ", "_")
+    return f"email:{clean}"
+
+
+def thread_node_id(thread_id: str) -> str:
+    return f"thread:{thread_id.strip()}"
+
+
+def document_node_id(doc_id: str) -> str:
+    return f"doc:{doc_id.strip()}"
+
+
+def concept_node_id(term: str) -> str:
+    clean = term.strip().lower().replace(" ", "_")
+    return f"concept:{clean}"
+
+
+# --- Graph Population Helpers ------------------------------------------------
 
 def add_condition(driver: Neo4jSimulationDriver, condition: Condition) -> str:
     node_id = condition_node_id(condition.condition_id)
@@ -76,7 +200,7 @@ def link_similar_windows(
     *,
     similarity: float,
 ) -> None:
-    """Store a Step 10 feature-similarity link after both window nodes exist."""
+    """Store a feature-similarity link after both window nodes exist."""
     if source_window.window_id == target_window.window_id:
         raise OntologyError("self_similarity_link_not_allowed")
     driver.merge_edge(

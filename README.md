@@ -75,8 +75,41 @@ setting is never mistaken for a fault.
 
 ## 2. How it works, end to end
 
+### Unified Knowledge Graph Architecture
+
+The knowledge graph spans three unified data sources:
 ```
- DAQ recordings (25 condition folders, CSV files)
+People ↔ Emails ↔ CNC Components ↔ Documentation ↔ Processes ↔ Sessions ↔ Sensor Data ↔ Events
+```
+
+### End-to-End Query Pipeline
+
+```
+[User Query]
+      │
+      ▼
+① Understand intent/entities (Step 1) ── NER/entity matching against unified ontology + Session addressing (Option A)
+      │
+      ▼
+② Validate CNC context (Step 2) ── Strict CNC scope gate (declines out-of-scope queries with fixed declaration)
+      │
+      ▼
+③ Traverse knowledge graph (Step 3) ── Multi-hop traversal starting from query-extracted seed entities
+      │
+      ▼
+④ Retrieve relevant data (Step 4) ── Passage-level text (Vector/BM25) + Sensor/signal analytics
+      │
+      ▼
+⑤ Analyze/reason (Step 5) ── Cross-source reasoning (corroborate findings, match faults, link communications)
+      │
+      ▼
+⑥ Generate grounded answer (Step 6) ── Evidence-only synthesis with transparent citations and provenance
+```
+
+### Underlying Processing & Provenance Pipeline
+
+```
+ DAQ recordings (25 condition folders, CSV files) + Documentation (PDFs) + Email Corpus
         │
         ▼
  ① Ingestion & quality gate ── bad files are quarantined, never "repaired"
@@ -94,10 +127,10 @@ setting is never mistaken for a fault.
  ⑤ Anomaly detection ── windows far from their baseline become Findings
         │
         ▼
- ⑥ Provenance graph + indexes ── Condition → Recording → Window → Finding
+ ⑥ Unified Provenance Graph ── Session ↔ Event ↔ Finding ↔ Fault ↔ Component ↔ Document ↔ Person ↔ Email
         │
         ▼
- ⑦ Evidence-only LLM ── explains findings in plain language, with citations
+ ⑦ Evidence-only LLM ── explains findings & cross-source relations in plain language with citations
         │
         ▼
  ⑧ API + web app ── chat, dataset health, analysis, evidence browser
@@ -421,9 +454,9 @@ To force a recompute after changing the data, send `"force": true` to
 | `api/main.py` | Core FastAPI app: ingest, profile, analyse, query and config, background jobs and caching. |
 | `ingestion/` | Dataset discovery (manifest), CSV quality gate, DAQ parser and pipeline. |
 | `signal/` | Sampling rate, gap filling, windowing and features. |
-| `analytics/` | Per-condition baselines, anomaly detection, leakage-safe splits, tool-wear model. |
-| `knowledge/` | Provenance graph (ontology and graph store: in-memory, or real Neo4j when configured) and entity extraction. |
-| `retrieval/` | DAQ metadata index, feature store and retriever; document hybrid retrieval (keyword + optional vectors, query router, reranking, graph augmentation). |
+| `analytics/` | Per-condition baselines, anomaly detection, leakage-safe splits, session analytics triggering & cross-source reasoning (`session_analyzer.py`), tool-wear model. |
+| `knowledge/` | Provenance graph (ontology, graph store: in-memory or Neo4j), `provenance.py`, `session_ids.py` (global 1..822 addressing), and entity extraction. |
+| `retrieval/` | Query intent & entity understanding (`query_understanding.py`), strict CNC scope gate (`scope_gate.py`), multi-hop knowledge graph traversal (`graph_query.py`), node-guided data retrieval (`node_data_retriever.py`), DAQ metadata index, feature store and retriever; document hybrid retrieval. |
 | `llm/` | Evidence-only prompt builders (findings and documents) and orchestrators; extra LLM providers (Anthropic). |
 | `core/` | Shared data models, config loading/hot-reload, and plugin registries (including the Gemini/OpenAI providers). |
 | `knowledge_docs/pdfs/` | Project knowledge documents answered from in chat (see §2). |
@@ -451,53 +484,36 @@ aren't part of the DAQ application.
 
 **Working today**
 
-- Full pipeline from raw CSV to cited explanation, verified on the real
-  corpus.
+- **Unified Knowledge Graph Query Pipeline (Steps 1–6 complete)**:
+  - Step 1: Query intent & entity understanding with ontology NER and Option A session addressing (`retrieval/query_understanding.py`).
+  - Step 2: Strict CNC scope gate with 3-tier validation and verbatim `IN_SCOPE_DECLARE` decline (`retrieval/scope_gate.py`).
+  - Step 3: Multi-hop knowledge graph traversal with bounded BFS and cycle prevention (`retrieval/graph_query.py`).
+  - Step 4: Node-guided cross-modal data retrieval combining BM25, vector search, and signal findings (`retrieval/node_data_retriever.py`).
+  - Step 5: Session analytics triggering (`ensure_session_analysis`) and cross-source evidence synthesis (`analytics/session_analyzer.py`).
+  - Step 6: Multi-source grounded answer generation citing `[Finding N]`, `[Doc N]`, and `[Email N]` (`llm/prompt_builder.py` & `llm/orchestrator.py`).
+- Full pipeline from raw CSV to cited explanation, verified on the real corpus.
 - Chat server with automatic ingestion/analysis, cache reuse and LLM fallback.
 - Web app with all six pages, mock mode and automated tests.
-- Questions about the project, machine and terms answered from the knowledge
-  documents, with cited passages.
-- Tool-wear model: on 161 held-out recordings it scored MAE 14.3 µm,
-  RMSE 18.9 µm, R² 0.93 (split by whole recordings, so no window leakage).
+- Questions about the project, machine and terms answered from the knowledge documents, with cited passages.
+- Tool-wear model: on 161 held-out recordings it scored MAE 14.3 µm, RMSE 18.9 µm, R² 0.93 (split by whole recordings, so no window leakage).
 
 **Known limitations**
 
-- **Run-specific questions must name one condition and one signal.**
-  Comparisons across signals or conditions aren't supported yet.
-- **No mixed answers yet.** A question is answered either from findings or
-  from the documents, never both together.
-- **Document search is keyword-based by default.** The default embedder
-  isn't semantic, so vector search is switched off unless
-  `USE_NEURAL_MODELS=1` (and the documents are re-indexed with it). Tables in
-  PDFs are extracted as plain text, not structured rows.
-- **The first analysis of a new condition + channel takes time.** Every
-  answer after that uses the cache.
-- **Load-cell and current answers can use vibration wording.** Plain-language
-  feature statements currently say "vibration" for every channel. The
-  numbers are right; the wording needs to become channel-aware.
-- **Local use only.** The backend accepts connections only from the same
-  machine, so another computer on the network can open the web app but can't
-  reach the backend.
-- **The tool-wear split is not by condition.** It separates whole recordings,
-  but held-out recordings can share a condition with training ones. A
-  whole-condition hold-out would be a stricter test. The model isn't exposed
-  by the API or UI yet.
-- **The LLM provider can be busy.** Gemini models are sometimes overloaded;
-  configure fallback models (§6).
+- **Document search is keyword-based by default.** The default embedder isn't semantic, so vector search is switched off unless `USE_NEURAL_MODELS=1`.
+- **The first analysis of a new condition + channel takes time.** Every answer after that uses the cache.
+- **Load-cell and current answers can use vibration wording.** Plain-language feature statements currently say "vibration" for every channel. The numbers are right; the wording needs to become channel-aware.
+- **Local use only.** The backend accepts connections only from the same machine.
+- **The tool-wear split is not by condition.** It separates whole recordings, but held-out recordings can share a condition with training ones.
 
 **Next steps**
 
-1. Channel-aware wording for findings (load, current and vibration).
-2. Serve the tool-wear model through the API and connect the Tool Wear page.
-3. Endpoints for listing conditions, listing findings and fetching a window's
-   waveform, then enabling the Waveforms page. See
-   [frontend/BACKEND_REQUESTS.md](frontend/BACKEND_REQUESTS.md).
-4. Optional LAN access (bind the backend to the network and allow the
-   frontend's origin).
-5. Multi-signal and cross-condition questions.
-6. Mixed answers that combine document passages with findings in one reply.
-7. Layout-aware PDF extraction (e.g. Docling), so table rows such as
-   per-condition recording counts can be retrieved exactly.
+1. **Ingestion Pipelines**: Production PDF entity extraction (`extraction/doc_entity_extraction.py`) and email archive ingestion (`ingestion/parsers/email_parser.py`, `ingestion/extraction/ner.py`).
+2. Channel-aware wording for findings (load, current and vibration).
+3. Serve the tool-wear model through the API and connect the Tool Wear page.
+4. Endpoints for listing conditions, listing findings and fetching a window's waveform, then enabling the Waveforms page. See [frontend/BACKEND_REQUESTS.md](frontend/BACKEND_REQUESTS.md).
+5. Optional LAN access (bind the backend to the network and allow the frontend's origin).
+6. Multi-signal and cross-condition questions.
+7. Layout-aware PDF extraction (e.g. Docling), so table rows such as per-condition recording counts can be retrieved exactly.
 
 ---
 

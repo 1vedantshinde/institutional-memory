@@ -497,3 +497,186 @@ pip install -r requirements.txt
    - `PUT /config`: Accepts updated JSON payload containing `domain_name`, `entity_types`, `relation_types`, and `glossary` to reconfigure the platform instantly at runtime.
 
 ---
+
+## 6. Unified Knowledge Graph Architecture
+
+A single knowledge graph spanning people, emails, documentation, and CNC machine sessions:
+```
+People ↔ Emails ↔ CNC Components ↔ Documentation ↔ Processes ↔ Sessions ↔ Sensor Data ↔ Events
+```
+The knowledge graph is the central contextual layer. Vector search and signal analytics are tools the graph-traversal step reaches for when it needs passage-level text or computed numbers, not parallel systems competing with the graph.
+
+### 6.1 Extended Unified Ontology
+
+```yaml
+entity_types:
+  # DAQ
+  - Condition
+  - Session
+  - Recording
+  - SignalWindow
+  - Finding
+  - Channel
+  - Event
+  # Documentation
+  - Document
+  - Component           # Spindle, Tool Holder, Coolant Pump, Table
+  - Process             # Facing, Pocketing, Milling
+  - Parameter           # Feed Rate, Spindle Speed, Depth of Cut
+  - Procedure           # Spindle Bearing Replacement, SOP
+  - Fault               # Tool Wear, Bearing Fault, Chatter
+  - Concept             # Mahalanobis distance, Kurtosis, RMS
+  # Email / Organizational
+  - Person
+  - Organization
+  - Email
+  - EmailThread
+
+relation_types:
+  # DAQ
+  - CAPTURED_UNDER      # Session -CAPTURED_UNDER-> Condition
+  - HAS_WINDOW          # Session -HAS_WINDOW-> SignalWindow
+  - EXHIBITS_PATTERN    # SignalWindow -EXHIBITS_PATTERN-> Finding
+  - OCCURRED_DURING     # Event -OCCURRED_DURING-> Session
+  # Documentation
+  - DOCUMENTS           # Document -DOCUMENTS-> Component | Process | Procedure | Fault
+  - PART_OF             # Component -PART_OF-> Component
+  - REQUIRES            # Procedure -REQUIRES-> Parameter
+  - CAUSED_BY           # Fault -CAUSED_BY-> Component
+  - EXPLAINS            # Document -EXPLAINS-> Concept
+  # Email / Organizational
+  - SENT                # Person -SENT-> Email
+  - RECEIVED            # Person -RECEIVED-> Email
+  - PART_OF_THREAD      # Email -PART_OF_THREAD-> EmailThread
+  - WORKS_AT            # Person -WORKS_AT-> Organization
+  - MENTIONS            # Email -MENTIONS-> Component | Fault | Process | Person
+  - DISCUSSES           # Person -DISCUSSES-> Component | Fault
+  # Cross-Source
+  - RELATED_TO          # Fault <-> Finding, Concept <-> Concept
+  - CORROBORATES        # Email -CORROBORATES-> Finding
+```
+
+### 6.2 Provenance Model
+
+Every node and edge carries explicit provenance:
+```python
+class Provenance(BaseModel):
+    source_type: Literal["email", "document", "session_data", "query", "derived"]
+    source_path: str          # .eml path / PDF path / CSV path / query
+    extracted_at: datetime
+    extraction_method: str    # "spacy_ner" | "llm_extraction" | "rule_based" | "signal_analytics" | "derived"
+    confidence: Optional[float] = None
+```
+
+---
+
+## 7. Strict CNC Scope Gate
+
+Unrelated questions receive a fixed, non-generated decline:
+```python
+IN_SCOPE_DECLARE = (
+    "This system answers questions about the CNC machine, its operation, "
+    "documentation, sessions, and associated knowledge."
+)
+```
+- **Tier 1 (Entity-Match Gate)**: Query matched any ontology entity -> In Scope (0 LLM cost).
+- **Tier 2 (Domain Heuristic Matcher)**: Query contains CNC/machining domain vocabulary -> In Scope.
+- **Tier 3 (Semantic Classifier Fallback)**: Cheap 1-token binary classification (`YES`/`NO`).
+- **Decline**: Returns `IN_SCOPE_DECLARE` verbatim; nothing downstream executes.
+
+---
+
+## 8. End-to-End 6-Step Query Execution Pipeline
+
+```
+[User Query]
+      │
+      ▼
+① Understand intent/entities (Step 1) ── NER/entity matching against unified ontology + Session addressing
+      │
+      ▼
+② Validate CNC context (Step 2) ── Strict CNC scope gate (declines out-of-scope queries immediately)
+      │
+      ▼
+③ Traverse knowledge graph (Step 3) ── Multi-hop traversal starting from query-extracted seed entities
+      │
+      ▼
+④ Retrieve relevant data (Step 4) ── Per-node passage text (Vector/BM25) + Sensor/signal analytics
+      │
+      ▼
+⑤ Analyze & reason (Step 5) ── Multi-source cross-referencing (corroborate findings, match fault patterns)
+      │
+      ▼
+⑥ Generate grounded answer (Step 6) ── Evidence-only synthesis with transparent citations and provenance
+```
+
+---
+
+## 9. Worked Examples, Traced Through the Pipeline
+
+| Question | Step 1 Entities | Step 3 Traversal | Step 5 Analysis | Answer Grounded In |
+|---|---|---|---|---|
+| *"How does the spindle work?"* | Component: Spindle | `Spindle → Document (DOCUMENTS)` | — (no computation needed) | `[Doc N]` only |
+| *"Who discussed the spindle problem?"* | Component: Spindle, implied Fault | `Spindle ← MENTIONS ← Email ← SENT/RECEIVED ← Person` | — | `[Email N]` + graph-derived Person list |
+| *"What happened to the spindle in session 42?"* | Session: 42, Component: Spindle | `Session(42) → HAS_WINDOW → SignalWindow → EXHIBITS_PATTERN → Finding` (filtered to Spindle channel) | Triggered if not cached | `[Finding N]` only |
+| *"Was the issue in session 42 related to the problem discussed in the emails?"* | Session: 42, implied Fault/Component | `Session(42) → Finding → RELATED_TO → Fault → CAUSED_BY → Component ← MENTIONS ← Email` | Triggered if session 42's analysis isn't cached | `[Finding N]` + `[Fault doc N]` + `[Email N]`, all in one answer |
+
+---
+
+## 10. Step-by-Step Build Order
+
+1. **Decide Session Addressing Scheme (Option A)**: Global sequential session IDs 1–822 mapped in `knowledge/session_ids.py`.
+2. **Extend domain.yaml Ontology**: Full 3-source schema in `config/domain.yaml` and `knowledge/ontology.py`.
+3. **Revive `pdf_parser.py`**: Validate real vs. simulated extraction on PDFs.
+4. **Build `extraction/doc_entity_extraction.py`**: Component/Process/Parameter/Procedure/Fault extraction from PDFs.
+5. **Revive `email_parser.py`**: Structural parsing of email archives (`.eml`, `.mbox`, `.msg`).
+6. **Build `extraction/ner.py` & Header Relations**: Extract Person/Organization and `SENT`/`RECEIVED` edges.
+7. **Concept Matching & `MENTIONS` Edges**: Scan emails against domain vocabulary; validate with synthetic injected test emails.
+8. **Scale Ingestion**: Expand email corpus with tracked NER and extraction costs.
+9. **Build `knowledge/session_ids.py`**: Populate `Session.session_id` on every recording/session node.
+10. **Build `retrieval/scope_gate.py`**: Implement 3-tier CNC-only scope gate and fixed decline string.
+11. **Build Step 1–2 Query Understanding & Gating**: Integrate in `retrieval/query_understanding.py` and `llm/orchestrator.py`.
+12. **Build Multi-Hop Graph Traversal (`retrieval/graph_query.py`)**: Implement `traverse()` and test worked examples.
+13. **Build Step 5 Analysis-Triggering Logic**: Implement `ensure_session_analysis()` to detect cached vs. fresh findings.
+14. **Extend `prompt_builder.py`**: Multi-source evidence merge (`Finding`, `Doc`, `Email`) with graph-path citations.
+15. **End-to-End Verification**: Test all worked examples from Section 9 and scope gate decline paths.
+
+---
+
+## 11. Debugging Playbook
+
+| Symptom | Likely Cause | Fix |
+|---|---|---|
+| **Near-zero email-graph hits for any CNC term** | Expected on Enron corpus. Enron is a pipeline test stand-in. | Confirm with a synthetic injected test email (Build Step 7) before assuming the pipeline is broken. |
+| **NER extraction absurdly slow or expensive at scale** | Running LLM-based extraction per email on large corpus. | Use spaCy / rule-based regex for Person/Org; reserve LLM extraction for technical documentation. |
+| **"Session 42" resolves to wrong recording or fails** | Session ID mapping built inconsistently between runs. | Persist mapping once in `knowledge/session_ids.py`, never regenerate silently — treat it as fixed data. |
+| **Scope gate declines a question that is in scope** | Step 1 entity extraction missed an indirect reference. | Log false declines and expand domain vocabulary in `domain.yaml` rather than guessing. |
+| **Cross-source answer cites unrelated finding and email** | `RELATED_TO`/`CORROBORATES` edges written too liberally. | Tighten relation matching logic at ingestion time — a wrong graph edge is worse than a missing one. |
+| **`ensure_session_analysis` re-runs every time** | Cache-check logic not querying existing findings key. | Confirm `findings_exist()` checks `(condition_id, recording_number, channel)`. |
+
+---
+
+## 12. Master Blueprint Prompt & Non-Negotiable Rules
+
+1. **The AI Never Calculates**: The LLM only explains results produced by deterministic signal analytics, never derives them.
+2. **Pre-Compute Probabilistic Extractions**: Run NER, document entity extraction, and relation linking at ingestion time; never at query time.
+3. **Accuracy Over Density**: A wrong graph edge is worse than a missing one. When in doubt about creating `RELATED_TO`/`CORROBORATES` edges, do not write them.
+4. **Evidence-Grounded Citations**: Citations (`[Finding N]`, `[Doc N]`, `[Email N]`) are built directly from retrieved evidence objects, never extracted from free-form model text.
+5. **Single Graph Architecture**: No `if/elif` single-source routing; every question runs through unified graph traversal.
+
+---
+
+## 13. Milestone Checklist
+
+- [x] Session ID scheme decided and documented in `knowledge/session_ids.py` and `domain.yaml` (Option A: 1..822)
+- [x] Ontology extended with all entity/relation types in `config/domain.yaml` and `knowledge/ontology.py`
+- [x] Explicit Provenance model implemented in `knowledge/provenance.py`
+- [x] Step 1 Query Intent & Entity Understanding implemented in `retrieval/query_understanding.py`
+- [x] Step 2 Strict CNC Scope Gate implemented in `retrieval/scope_gate.py` with `IN_SCOPE_DECLARE`
+- [x] Step 3 Multi-Hop Knowledge Graph Traversal implemented in `retrieval/graph_query.py` with size/hop caps
+- [x] Step 4 Node-Guided Cross-Modal Data Retrieval implemented in `retrieval/node_data_retriever.py`
+- [x] Step 5 Analysis & Reasoning (`ensure_session_analysis` & cross-source synthesis in `analytics/session_analyzer.py`)
+- [x] Step 6 Grounded Answer Generation with multi-source citations (`[Finding N]`, `[Doc N]`, `[Email N]`) in `llm/prompt_builder.py` & `llm/orchestrator.py`
+- [ ] Documentation entity extraction (`extraction/doc_entity_extraction.py`)
+- [ ] Email ingestion & NER pipeline (`ingestion/parsers/email_parser.py`, `ingestion/extraction/ner.py`)
+

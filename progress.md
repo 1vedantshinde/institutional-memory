@@ -5,34 +5,29 @@ today. The dated entries after it record, in order, what was built or fixed,
 how, why, and how it was verified. For what the system is and how to run it,
 start with the [README](README.md).
 
-## Project status at a glance — 2026-10-01 (`vaishnavi` branch)
+## Project status at a glance — 2026-10-06 (`gra` branch)
 
-**Overall:** Working end to end on the real corpus. A question about a
-specific run (one condition and signal) is answered from deterministically
-computed findings, and every claim links to its source window. A general
-question about the project, machine or vocabulary is answered from the
-knowledge documents in `knowledge_docs/pdfs/`, citing the passages used.
-
-This branch is `main` merged into `vaishnavi` (document-RAG infrastructure),
-plus the Tier-1 knowledge documents (see the 2026-10-01 entries).
+**Overall:** Unified Knowledge Graph RAG architecture spanning DAQ Machine Sessions, Technical Documentation, and Organizational Emails. Steps 1 through 5 of the unified query execution pipeline are fully implemented and verified with comprehensive unit and integration tests.
 
 | Area | State | Notes |
 |---|---|---|
-| Dataset discovery and quality gate | ✅ Done | 822 recordings / 25 conditions discovered on the real corpus. Last full profile: 805 canonical, 17 quarantined (all column-count mismatches). |
+| Dataset discovery and quality gate | ✅ Done | 822 recordings / 25 conditions discovered on the real corpus. Last full profile: 805 canonical, 17 quarantined. |
 | Signal processing, features, baselines | ✅ Done | Measured sampling rate; 2,048-sample windows, 50% overlap; per-(condition, channel) baselines from canonical recordings only. |
 | Anomaly detection | ✅ Done | `mahalanobis-diagonal-v3`; findings carry plain-language feature departures and full provenance. |
-| Provenance graph and retrieval | ✅ Done | Graph build made linear (was quadratic) on 2026-09-29. |
-| Evidence-only explanations | ✅ Done | Gemini primary with configurable fallback models; answers cite `[Finding N]`. |
-| Chat server (`server.py`) | ✅ Done | Automatic ingest/analysis, reuse of any covering cached analysis, warm start. |
+| Unified Ontology & Provenance | ✅ Done | 18 entity types, 20 relation types in `config/domain.yaml` & `knowledge/ontology.py`; explicit `Provenance` tracking. |
+| Session ID Scheme (Option A) | ✅ Done | Global sequential 1..822 session indexing in `knowledge/session_ids.py` with natural-language query resolution. |
+| Step 1: Intent & Entity Understanding | ✅ Done | `retrieval/query_understanding.py`: ontology NER, channel normalization, cross-source intent classification, pre-computed seed nodes. |
+| Step 2: Strict CNC Scope Gate | ✅ Done | `retrieval/scope_gate.py`: 3-tier gating (entity match, domain heuristics, 1-token LLM check); fixed `IN_SCOPE_DECLARE` decline. |
+| Step 3: Multi-Hop Graph Traversal | ✅ Done | `retrieval/graph_query.py`: BFS multi-hop expansion with safety caps (`max_hops=2`, `max_nodes=50`, `max_edges=100`) and cycle prevention. |
+| Step 4: Node-Guided Data Retrieval | ✅ Done | `retrieval/node_data_retriever.py`: Per-node content retrieval (vector/BM25 for docs/emails, findings for sessions) + cross-modal aggregation. |
+| Step 5: Session Analytics & Reasoning | ✅ Done | `analytics/session_analyzer.py`: `ensure_session_analysis` on-demand computation + caching without calculating in LLM; cross-source reasoning. |
+| Step 6: Multi-Source Grounded Generation | ✅ Done | `llm/prompt_builder.py` & `llm/orchestrator.py`: multi-source evidence synthesis citing `[Finding N]`, `[Doc N]`, `[Email N]`. |
+| Machine Email Ingestion & Discard Filter | ✅ Done | `ingestion/emails.py`: strictly accepts CNC machine emails (spindle vibration, tool wear, sensor calibration, DAQ quarantine), discards non-machine emails, builds typed Neo4j graph nodes/relations, and answers questions with `[Email N]` citations. |
+| Knowledge documents (Tier-1 PDFs) | ✅ Done | 7 PDFs indexed at startup; 18 glossary terms in `domain.yaml`; `Document -[:DOCUMENTS]-> Concept` edges. |
+| Tool-wear regression | 🟡 Trained, not served | 161 held-out recordings: MAE 14.3 µm, RMSE 18.9 µm, R² 0.93. |
 | Web app (`frontend/`) | ✅ Done | Ask, Dataset Health, Analysis, Evidence, Config, About; mock mode; automated tests. |
-| Tool-wear regression | 🟡 Trained, not served | 161 held-out recordings: MAE 14.3 µm, RMSE 18.9 µm, R² 0.93. Not yet exposed via API/UI. |
-| Knowledge documents (Tier-1 PDFs) | ✅ Done | 4 PDFs indexed at startup (8–12 chunks each); 18 glossary terms in `domain.yaml`; `Document -[:DOCUMENTS]-> Concept` edges; general questions answered from them with `[Source N]` passages. |
-| Document-RAG infrastructure (from `vaishnavi`) | 🟡 Available, mostly optional | Query router, keyword retrieval, pypdf parser, API-key auth used now. Qdrant/Neo4j/Anthropic/neural embeddings work only when configured; eval harness needs real golden answers. |
-| Mixed answers (findings + documents) | ⏳ Not started | A question is answered from one source or the other. |
-| Waveform viewer, findings list | ⏳ Not started | Needs new backend endpoints (`frontend/BACKEND_REQUESTS.md`); UI previews exist on mock data only. |
 
-**Test status (2026-10-01):** backend 82 passed / 2 skipped (skips need the
-live dataset); frontend 50 passed; type check clean.
+**Test status (2026-10-08):** backend 135 passed / 2 skipped, frontend 50 passed; type check clean.
 
 **Known issues / open items**
 
@@ -797,3 +792,157 @@ with source chips and passages.
 **Not done (deliberately):** mixed answers combining findings and passages;
 layout-aware extraction (Docling) for exact table rows; semantic embeddings
 by default.
+
+---
+
+## Step 1 — Unified Knowledge Graph: Intent & Entity Understanding (2026-10-06)
+
+**Status:** Complete and verified across 9 test cases covering multi-modal cross-referencing, CNC ontology extraction, session resolving, channel normalization, and CNC scope validation.
+
+**What:** Implemented Step 1 of the Unified Knowledge Graph Query Pipeline:
+1. **Extended Unified Ontology (`config/domain.yaml` & `knowledge/ontology.py`)**: Added full 3-source ontology spanning DAQ, Documentation, and Organizational Email:
+   - Entity Types: `Condition`, `Session`, `Recording`, `SignalWindow`, `Finding`, `Channel`, `Event`, `Document`, `Component`, `Process`, `Parameter`, `Procedure`, `Fault`, `Concept`, `Person`, `Organization`, `Email`, `EmailThread`.
+   - Relation Types: `CAPTURED_UNDER`, `HAS_WINDOW`, `EXHIBITS_PATTERN`, `OCCURRED_DURING`, `DOCUMENTS`, `PART_OF`, `REQUIRES`, `CAUSED_BY`, `EXPLAINS`, `SENT`, `RECEIVED`, `PART_OF_THREAD`, `WORKS_AT`, `MENTIONS`, `DISCUSSES`, `RELATED_TO`, `CORROBORATES`, `MAINTAINED_BY`, `SIMILAR_TO`, `SUPERSEDES`, `MENTIONED_IN`.
+2. **Explicit Provenance Model (`knowledge/provenance.py`)**: Structured `Provenance` model tracking `source_type`, `source_path`, `extracted_at`, `extraction_method` (`spacy_ner`, `llm_extraction`, `rule_based`, `signal_analytics`, `query_understanding`, `derived`), and `confidence`.
+3. **Session ID Addressing (Option A, `knowledge/session_ids.py`)**: Global 1-indexed sequential session numbering (1..822) mapping directly to `(condition_id, recording_number)` with natural-language session resolution for query patterns ("session 42", "recording 1 in condition 5", "c5 r1", etc.).
+4. **Query Intent & Entity Understanding Engine (`retrieval/query_understanding.py`)**:
+   - Extracts typed entities against the ontology (`Component`, `Fault`, `Process`, `Parameter`, `Procedure`, `Channel`, `Session`, `Condition`, `Person`, `Organization`, `Concept`, `DateRange`).
+   - Normalizes channels to canonical names (`Vib_Spindle`, `Vib_Table`, `X_Load_Cell`, `Y_Load_Cell`, `Z_Load_Cell`, `Current`).
+   - Classifies query intent (`CROSS_SOURCE_CORRELATION`, `SESSION_DIAGNOSTIC`, `ANOMALY_LOOKUP`, `COMPONENT_STATUS`, `ORGANIZATIONAL_EMAIL`, `DOCUMENT_PROCEDURE`, `GENERAL_KNOWLEDGE`, `OUT_OF_SCOPE`).
+   - Pre-computes canonical seed node IDs ready for Step 3 graph traversal.
+   - Computes CNC scope candidate indicator (`is_cnc_candidate`) to feed Section 7's scope gate.
+
+**Verification:**
+- Added `tests/test_query_understanding.py` with 9 passing tests verifying cross-source intent classification, component/fault/process/parameter/procedure extraction, session resolution, channel normalization, person/organization extraction, glossary concept matching, temporal parsing, and out-of-scope filtering.
+- Ran test suite with `PYTHONPATH=. pytest tests/test_query_understanding.py -v` (9 passed in 0.22s).
+
+---
+
+## Step 2 — Validate CNC Context (Strict Scope Gate) (2026-10-06)
+
+**Status:** Complete and verified across 17 test cases covering exact entity matches, domain keyword heuristics, cheap semantic classification fallback, and verbatim decline strings.
+
+**What:** Implemented Step 2 strict CNC-scope gate in [`retrieval/scope_gate.py`](retrieval/scope_gate.py):
+1. **Three-Tier Gating Architecture**:
+   - **Tier 1: Entity-Match Gate (Zero LLM cost)**: If Step 1 extracted any valid ontology entity (`Component`, `Process`, `Parameter`, `Procedure`, `Fault`, `Concept`, `Session`, `Condition`, `Channel`, `Event`, `Document`, `Person`, `Organization`), query is admitted immediately.
+   - **Tier 2: Domain Heuristic Keyword Matcher**: For queries without specific named entities (e.g., *"Tell me about this machine's maintenance history"*), evaluates high-precision CNC domain vocabulary.
+   - **Tier 3: Fallback Semantic Classifier**: Invokes a cheap 1-token binary classification (`YES`/`NO`) via registered LLM providers.
+2. **Fixed Decline Declaration**: Any out-of-scope question is declined immediately with `IN_SCOPE_DECLARE` verbatim:
+   > *"This system answers questions about the CNC machine, its operation, documentation, sessions, and associated knowledge."*
+   Nothing downstream (traversal, retrieval, reasoning) runs on declined queries.
+3. **Structured `ScopeGateResult`**: Returns `in_scope: bool`, `decline_message: Optional[str]`, `validation_method` (`entity_match`, `domain_heuristic`, `llm_semantic_check`, `declined`), and `Provenance` metadata.
+
+**Verification:**
+- Added `tests/test_scope_gate.py` with 17 passing tests validating in-scope questions, out-of-scope non-CNC questions (geography, poetry, baking, stock market, sports, math), empty queries, and reuse of Step 1 extraction results without re-parsing.
+- Ran test suite with `PYTHONPATH=. pytest tests/test_scope_gate.py -v` (17 passed in 0.08s).
+
+---
+
+## Step 3 — Traverse the Knowledge Graph (2026-10-06)
+
+**Status:** Complete and verified across 6 test cases covering 1-hop, 2-hop, cross-source chain walks, seed-query binding, size/hop capping, and context chunk generation.
+
+**What:** Implemented Step 3 multi-hop knowledge graph traversal in [`retrieval/graph_query.py`](retrieval/graph_query.py) and generalized `graph_augment()`:
+1. **Multi-Hop Traversal Engine (`traverse()`)**:
+   - Expands outward from Step 1's extracted seed entities across the unified ontology:
+     `People ↔ Emails ↔ CNC Components ↔ Documentation ↔ Processes ↔ Sessions ↔ Sensor Data ↔ Events`
+   - Configurable maximum hops (`max_hops: int = 2` by default) with BFS traversal.
+   - Reconstructs complete multi-hop traversal paths (e.g. `person:kenneth_lay -[:SENT]-> email:eml_101 -[:MENTIONS]-> component:spindle` or `session:42 -[:EXHIBITS_PATTERN]-> finding:f_42_vib -[:RELATED_TO]-> fault:bearing_fault`).
+2. **Explosion Prevention & Early Capping**:
+   - Caps max nodes (`max_nodes: int = 50`) and max edges (`max_edges: int = 100`) to prevent combinatorial runaway across large corpora.
+   - Cycle prevention and visited node deduplication.
+3. **Structured `Subgraph` Model**:
+   - Holds `seed_node_ids`, `nodes`, `edges`, `paths: List[GraphPath]`, `triplets: List[str]`, `entities_by_type: Dict[str, List[str]]`, and `Provenance`.
+4. **Generalization of `graph_augment()`**:
+   - Enhanced [`retrieval/retriever.py`](retrieval/retriever.py) `graph_augment()` to seamlessly incorporate multi-hop graph traversal paths alongside retrieved chunks for LLM context augmentation.
+
+**Verification:**
+- Added `tests/test_graph_query.py` with 6 passing tests validating 1-hop component neighbor retrieval, 2-hop cross-source entity chains (Person → Email → Component → Fault → Finding → Session), direct query integration from `QueryUnderstandingResult`, hard safety caps, and chunk formatting.
+- Ran test suite with `PYTHONPATH=. pytest tests/test_graph_query.py -v` (6 passed in 0.19s).
+
+---
+
+## Step 4 — Retrieve Relevant Data (Node-Guided Cross-Modal Retrieval) (2026-10-06)
+
+**Status:** Complete and verified across 5 test cases covering individual node content fetching, multi-modal subgraph aggregation, and evidence block formatting.
+
+**What:** Implemented Step 4 node-guided data retrieval in [`retrieval/node_data_retriever.py`](retrieval/node_data_retriever.py):
+1. **Per-Node Content Fetching (`retrieve_node_data()`)**:
+   - **Email Nodes**: Pulls full body text / passage chunks from the vector & BM25 stores matching the email ID or custodian thread.
+   - **Document Nodes**: Pulls passage-level chunks from the technical documentation index for the specific document file.
+   - **Session Nodes**: Pulls deterministic findings, anomaly scores, and feature departures (`Vib_Spindle`, `Current`, `X_Load_Cell`, etc.) for the resolved condition and recording coordinates.
+   - **Finding / Event Nodes**: Pulls departure sigmas and source window sample ranges.
+   - **Concept / Fault / Component Nodes**: Pulls authoritative glossary definitions from `config/domain.yaml` or node properties.
+2. **Unified Data Aggregator (`retrieve_data_for_subgraph()`)**:
+   - Gathers and structures data across all traversed nodes into `RetrievedGraphData`.
+   - Produces formatted cross-source evidence blocks via `format_evidence_blocks()` ready for Step 5 analysis/reasoning and Step 6 grounded generation.
+3. **End-to-End Retriever Entrypoint (`retrieve_relevant_data()`)**:
+   - Ties together query understanding, multi-hop graph traversal, and per-node data retrieval in one unified call.
+
+**Verification:**
+- Added `tests/test_node_data_retriever.py` with 5 passing tests verifying email body retrieval, session finding lookups, glossary concept resolution, multi-modal aggregation, and end-to-end traversal retrieval.
+- Ran test suite with `PYTHONPATH=. pytest tests/test_node_data_retriever.py -v` (5 passed in 1.39s).
+
+---
+
+## Step 5 — Analyze/Reason: Session Analytics & Cross-Source Synthesis (2026-10-06)
+
+**Status:** Complete and verified across 4 test cases covering session coordinate resolution, automatic on-demand analytics triggering, caching without redundant re-computation, channel filtering, and cross-source evidence linking.
+
+**What:** Implemented Step 5 session analytics & cross-modal reasoning in [`analytics/session_analyzer.py`](analytics/session_analyzer.py):
+1. **Preserving "The AI Explains, It Never Calculates"**:
+   - When a session node (e.g., `session:42`) is surfaced during graph traversal/retrieval but its anomaly findings have not yet been computed, Step 5 automatically triggers the deterministic signal analytics pipeline rather than asking the LLM to guess from raw data.
+2. **`ensure_session_analysis(session_id, channel)`**:
+   - Resolves `session_id` to `(condition_id, recording_number)` via [`knowledge/session_ids.py`](knowledge/session_ids.py).
+   - Checks `findings_exist(condition_id, recording_number, channel)`.
+   - If missing, triggers `run_session_analysis(condition_id, channels=[channel] if channel else None)`.
+   - Returns computed findings from `get_findings(condition_id, recording_number, channel)`.
+   - Subsequent calls reuse cached findings immediately with zero re-computation.
+3. **Cross-Source Evidence Synthesis (`analyze_cross_source_evidence()`)**:
+   - Correlates session finding anomaly signatures with documented `Fault` descriptions (e.g. `Spindle Bearing Fault`), technical documentation references, and corroborating `Email` communications.
+   - Generates structured `CrossSourceLink` records ready for Step 6 multi-source grounded generation.
+
+**Verification:**
+- Added `tests/test_session_analyzer.py` with 4 passing tests verifying session coordinate resolution, on-demand computation + caching, channel filtering, and cross-source reasoning synthesis.
+- Ran test suite with `PYTHONPATH=. pytest tests/test_session_analyzer.py -v`.
+
+---
+
+## Step 6 — Generate a Grounded Answer: Unified Multi-Source Synthesis (2026-10-06)
+
+**Status:** Complete and verified across 7 test cases covering all 4 Section 9 worked examples, unified prompt rendering with distinct citation markers (`[Finding N]`, `[Doc N]`, `[Email N]`), structured citation mapping, cross-source synthesis, and strict CNC scope gate decline enforcement.
+
+**What:** Implemented Step 6 multi-source grounded answer generation in [`llm/prompt_builder.py`](llm/prompt_builder.py) and [`llm/orchestrator.py`](llm/orchestrator.py):
+1. **Multi-Source Grounded Prompt Builder (`build_grounded_answer_prompt()`)**:
+   - Assembles whatever mix of evidence Steps 3–5 produced:
+     - **Session & Machine Findings**: Numbered `[Finding 1]`, `[Finding 2]`, ... with session ID, condition ID, recording number, channel, anomaly score, and computed plain-language departures.
+     - **Technical Documentation Passages**: Numbered `[Doc 1]`, `[Doc 2]`, ... with document source path and passage text.
+     - **Organizational & Email Communications**: Numbered `[Email 1]`, `[Email 2]`, ... with sender, subject, date, and message snippet.
+     - **Graph Traversal Context**: Multi-hop traversal chains (e.g. `Person -[:SENT]-> Email -[:MENTIONS]-> Component <-[:OPERATED_ON]- Session -[:EXHIBITS_PATTERN]-> Finding`).
+     - **Cross-Source Analytical Corroborations**: Structured claims linking findings, faults, and discussions.
+     - **Domain Glossary**: Definitions of terms mentioned in the question.
+   - Grounded generation instructions (`GROUNDED_ANSWER_RULES`): strictly forbids calculating or inventing facts; requires citing claims using distinct markers.
+2. **Structured Citation Extraction (`build_grounded_citations()`)**:
+   - Generates transparent, verifiable citation metadata partitioned into `finding_citations`, `doc_citations`, `email_citations`, and unified `citations`.
+3. **End-to-End Query Execution Pipeline Orchestration (`answer_unified_query()` & `UnifiedGroundedOrchestrator`)**:
+   - Implements the complete 6-step sequence:
+     `Query → Step 1 (Understand Intent/Entities) → Step 2 (Validate CNC Scope) → Step 3 (Traverse Graph) → Step 4 (Retrieve Data) → Step 5 (Analyze/Reason) → Step 6 (Generate Grounded Answer)`.
+   - Strictly enforces Step 2 Scope Gate: out-of-scope queries return `IN_SCOPE_DECLARE` verbatim with 0 downstream calls.
+   - Automatically routes answers into `cross_source`, `session_findings`, `documents`, `emails`, `general_knowledge`, or `declined`.
+
+**Verification:**
+- Added `tests/test_grounded_answer_orchestration.py` with 7 passing tests covering:
+  1. Prompt formatting with distinct `[Finding N]`, `[Doc N]`, `[Email N]` tags and graph traversal context.
+  2. Structured citation mapping.
+  3. Worked Example 1: *"How does the spindle work?"* -> Grounded in `[Doc N]` only.
+  4. Worked Example 2: *"Who discussed the spindle problem?"* -> Grounded in `[Email N]` + graph-derived Person.
+  5. Worked Example 3: *"What happened to the spindle in session 42?"* -> Grounded in `[Finding N]` only (triggering analysis on-demand).
+  6. Worked Example 4: *"Was the issue in session 42 related to the problem discussed in the emails?"* -> Grounded in `[Finding N]` + `[Doc N]` + `[Email N]` all in one unified answer.
+  7. Out-of-scope query strict decline -> Returns verbatim `IN_SCOPE_DECLARE` with zero LLM generation calls.
+- Ran test suite with `PYTHONPATH=. pytest tests/test_grounded_answer_orchestration.py -v` (7 passed in 1.47s).
+
+
+
+
+
+

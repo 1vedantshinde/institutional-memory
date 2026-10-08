@@ -21,16 +21,31 @@ KNOWLEDGE_DOCS_ROOT = Path(__file__).resolve().parents[1] / "knowledge_docs" / "
 
 # Hand-written seed list of the concepts each document explains. Extend it as
 # real questions reveal concepts that aren't covered.
+# Seed list of the concepts each document explains across Tier-1 explainer PDFs
+# and published dataset articles.
 CONCEPTS_PER_DOC: dict[str, list[str]] = {
     "machine_fact_sheet.pdf": [
         "condition", "spindle speed", "feed rate", "depth of cut",
-        "latin square", "raw voltage", "sampling rate",
+        "latin square", "raw voltage", "sampling rate", "spindle",
+        "table", "accelerometer", "load cell", "current",
     ],
-    "quarantine_policy_explainer.pdf": ["quarantine", "canonical schema", "null bytes"],
-    "finding_explainer.pdf": ["finding", "baseline", "window", "anomaly score", "citation"],
+    "quarantine_policy_explainer.pdf": ["quarantine", "canonical schema", "null bytes", "corrupt", "nan"],
+    "finding_explainer.pdf": ["finding", "baseline", "window", "anomaly score", "citation", "z score"],
     "glossary.pdf": [
         "rms", "kurtosis", "crest factor", "skewness",
         "spectral band energy", "spectral centroid", "mahalanobis distance",
+    ],
+    "41597_2025_Article_5168.pdf": [
+        "mondragon", "face milling", "smart tool condition monitoring", "dynamometer",
+        "flank wear", "workpiece material", "sensor placement", "milling dataset",
+    ],
+    "main.pdf": [
+        "data article", "tool wear measurement", "sensor acquisition", "vibration sensor",
+        "load cell forces", "cutting conditions", "experimental setup",
+    ],
+    "applsci-12-00972-v2.pdf": [
+        "vibration based condition monitoring", "chatter", "bearing fault",
+        "tool condition monitoring", "machining dynamics", "signal processing",
     ],
 }
 
@@ -49,13 +64,16 @@ def ingested_documents() -> dict[str, int]:
     return dict(_ingested)
 
 
-def ingest_knowledge_docs(pipeline: Any, root: Path | str = KNOWLEDGE_DOCS_ROOT) -> dict[str, Any]:
+def ingest_knowledge_docs(pipeline: Any, root: Path | str = KNOWLEDGE_DOCS_ROOT, force: bool = False) -> dict[str, Any]:
     """Ingest every PDF under ``root`` and write its DOCUMENTS edges.
 
     Re-running is safe: chunk IDs are stable, so the vector store overwrites
     rather than duplicates, and graph MERGE semantics dedupe nodes/edges.
     """
     root = Path(root)
+    if not force and _ingested and len(_ingested) >= 7:
+        return {"root": str(root), "documents": dict(_ingested), "failed": {}}
+
     results: dict[str, Any] = {"root": str(root), "documents": {}, "failed": {}}
     if not root.is_dir():
         results["failed"]["<root>"] = f"Folder not found: {root}"
@@ -77,8 +95,15 @@ def ingest_knowledge_docs(pipeline: Any, root: Path | str = KNOWLEDGE_DOCS_ROOT)
     return results
 
 
+
+
 def _link_concepts(pipeline: Any, filename: str) -> None:
-    concepts = CONCEPTS_PER_DOC.get(filename, [])
+    concepts = list(CONCEPTS_PER_DOC.get(filename, []))
+    if not concepts:
+        # Auto-generate concept from filename if not in predefined map
+        clean_name = re.sub(r"[\-_.]+", " ", filename.replace(".pdf", "")).strip().lower()
+        if clean_name:
+            concepts = [clean_name]
     nodes = [{"id": filename, "name": filename, "type": "Document", "properties": {"path": f"knowledge_docs/pdfs/{filename}"}}]
     nodes += [{"id": c, "name": c, "type": "Concept"} for c in concepts]
     edges = [{"source_id": filename, "target_id": c, "type": "DOCUMENTS"} for c in concepts]
@@ -101,3 +126,4 @@ def documents_for_concepts(question: str) -> list[str]:
 
 def knowledge_docs_enabled() -> bool:
     return os.environ.get("KNOWLEDGE_DOCS_ENABLED", "1") != "0"
+

@@ -360,3 +360,150 @@ def answer_from_documents(question: str, limit: int = 4) -> Optional[Dict[str, A
         ],
         "route": "documents",
     }
+
+
+# =============================================================================
+# Step 6 — Unified Multi-Source Grounded Answer Generation Orchestrator
+# =============================================================================
+
+UNIFIED_GROUNDED_SYSTEM_PROMPT = (
+    "Generate concise, factual, evidence-grounded answers citing [Finding N], [Doc N], and [Email N]. "
+    "Never calculate, estimate, or invent facts or relationships not supported by the evidence."
+)
+
+
+def answer_unified_query(
+    query: str,
+    domain: Optional[Any] = None,
+    max_hops: int = 2,
+    llm_provider: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """Execute the complete 6-step Unified Knowledge Graph Query Execution Pipeline.
+
+    Step 1: Understand Intent & Entities (Ontology NER & Session Resolving)
+    Step 2: Validate CNC Context (Strict CNC Scope Gate -> Decline if Out of Scope)
+    Step 3: Traverse Knowledge Graph (Multi-Hop Bounded Expansion)
+    Step 4: Retrieve Relevant Data (Per-Node Passages, Findings & Definitions)
+    Step 5: Analyze & Reason (Ensure Session Analytics Computed + Cross-Source Synthesis)
+    Step 6: Generate Grounded Answer (Unified Multi-Source Prompt with [Finding N], [Doc N], [Email N])
+    """
+    from retrieval.query_understanding import understand_query
+    from retrieval.scope_gate import validate_cnc_scope, IN_SCOPE_DECLARE
+    from retrieval.graph_query import traverse_from_query
+    from retrieval.node_data_retriever import retrieve_data_for_subgraph
+    from analytics.session_analyzer import analyze_cross_source_evidence
+    from llm.prompt_builder import build_grounded_answer_prompt, build_grounded_citations
+
+    active_llm = llm_provider or llm
+
+    # --- Step 1: Understand Intent & Entities ---
+    qu_res = understand_query(query, domain=domain)
+
+    # --- Step 2: Validate CNC Context (Scope Gate) ---
+    gate_res = validate_cnc_scope(query, query_understanding=qu_res, domain=domain, llm_provider=active_llm)
+    if not gate_res.in_scope:
+        decline_text = gate_res.decline_message or IN_SCOPE_DECLARE
+        return {
+            "query": query,
+            "answer": decline_text,
+            "in_scope": False,
+            "citations": [],
+            "finding_citations": [],
+            "doc_citations": [],
+            "email_citations": [],
+            "finding_count": 0,
+            "doc_count": 0,
+            "email_count": 0,
+            "graph_paths": [],
+            "cross_source_links": [],
+            "analysis_triggered": False,
+            "route": "declined",
+            "validation_method": gate_res.validation_method,
+            "query_understanding": qu_res.model_dump() if hasattr(qu_res, "model_dump") else dict(qu_res),
+            "provenance": gate_res.provenance.model_dump() if hasattr(gate_res.provenance, "model_dump") else {},
+        }
+
+    # --- Step 3: Traverse Knowledge Graph ---
+    subgraph = traverse_from_query(qu_res, max_hops=max_hops)
+
+    # --- Step 4: Retrieve Relevant Data ---
+    retrieved_data = retrieve_data_for_subgraph(subgraph, query=query, domain=domain)
+
+    # --- Step 5: Analyze & Reason (Trigger Session Analytics if missing) ---
+    reasoning_res = analyze_cross_source_evidence(retrieved_data, qu_res)
+
+    # --- Step 6: Generate Grounded Answer ---
+    prompt = build_grounded_answer_prompt(
+        query=query,
+        reasoning_result=reasoning_res,
+        retrieved_data=retrieved_data,
+        domain=domain,
+    )
+    response_text = active_llm.generate(prompt, system_prompt=UNIFIED_GROUNDED_SYSTEM_PROMPT)
+
+    # Format structured citations
+    citation_maps = build_grounded_citations(
+        reasoning_result=reasoning_res,
+        retrieved_data=retrieved_data,
+    )
+
+    # Reconstruct graph paths for UI / provenance transparency
+    graph_paths = [p.to_text() for p in subgraph.paths] if subgraph.paths else subgraph.triplets
+
+    # Classify overall answer route
+    if reasoning_res.is_cross_source:
+        route = "cross_source"
+    elif len(citation_maps["finding_citations"]) > 0:
+        route = "session_findings"
+    elif len(citation_maps["doc_citations"]) > 0:
+        route = "documents"
+    elif len(citation_maps["email_citations"]) > 0:
+        route = "emails"
+    else:
+        route = "general_knowledge"
+
+    return {
+        "query": query,
+        "answer": response_text,
+        "in_scope": True,
+        "citations": citation_maps["citations"],
+        "finding_citations": citation_maps["finding_citations"],
+        "doc_citations": citation_maps["doc_citations"],
+        "email_citations": citation_maps["email_citations"],
+        "finding_count": len(citation_maps["finding_citations"]),
+        "doc_count": len(citation_maps["doc_citations"]),
+        "email_count": len(citation_maps["email_citations"]),
+        "graph_paths": graph_paths,
+        "cross_source_links": [
+            link.model_dump() if hasattr(link, "model_dump") else dict(link)
+            for link in reasoning_res.cross_source_links
+        ],
+        "analysis_triggered": reasoning_res.analysis_triggered,
+        "route": route,
+        "query_understanding": qu_res.model_dump() if hasattr(qu_res, "model_dump") else dict(qu_res),
+        "provenance": reasoning_res.provenance.model_dump() if hasattr(reasoning_res.provenance, "model_dump") else {},
+    }
+
+
+class UnifiedGroundedOrchestrator:
+    """End-to-end orchestrator for the 6-step Unified Knowledge Graph pipeline."""
+
+    def __init__(
+        self,
+        llm_provider: Optional[Any] = None,
+        domain: Optional[Any] = None,
+        max_hops: int = 2,
+    ):
+        self.llm = llm_provider or llm
+        self.domain = domain
+        self.max_hops = max_hops
+
+    def query(self, question: str) -> Dict[str, Any]:
+        """Process a user query end-to-end through Steps 1–6."""
+        return answer_unified_query(
+            query=question,
+            domain=self.domain,
+            max_hops=self.max_hops,
+            llm_provider=self.llm,
+        )
+

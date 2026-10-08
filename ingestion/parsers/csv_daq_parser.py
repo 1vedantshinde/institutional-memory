@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import io
 import json
 from pathlib import Path
 from typing import Sequence
@@ -17,6 +18,7 @@ from ingestion.quality import (
     CANONICAL_COLUMNS,
     data_rows,
     decode_text,
+    has_recognized_unit_row,
     has_valid_header,
     is_numeric_row,
     parse_csv_rows,
@@ -173,7 +175,7 @@ def load_full_numeric_array(
     *,
     canonical_columns: Sequence[str] = CANONICAL_COLUMNS,
     expected_column_count: int | None = None,
-) -> list[list[float]]:
+) -> list[list[float]] | np.ndarray:
     """Load every data row from a canonical recording as numeric values.
 
     This is intentionally separate from ``profile_file``: the profiler samples
@@ -192,19 +194,42 @@ def load_full_numeric_array(
     if hashlib.sha256(raw).hexdigest() != recording.checksum:
         raise NumericArrayLoadError("source_changed_after_profile")
 
+    expected_count = expected_column_count or len(canonical_columns)
+
+    # Sanitize null bytes if present
+    if b"\x00" in raw:
+        raw = raw.replace(b"\x00", b"")
+
+    # Fast header & unit row inspection on the first 4KB of raw bytes
+    preview = raw[:4096].decode("utf-8", errors="surrogateescape")
+    preview_lines = [line.strip().split(",") for line in preview.splitlines() if line.strip()]
+    if not preview_lines:
+        raise NumericArrayLoadError("empty_file")
+    if not has_valid_header(preview_lines[0], canonical_columns):
+        raise NumericArrayLoadError("invalid_header")
+    has_unit = len(preview_lines) > 1 and has_recognized_unit_row(preview_lines[1])
+    skip = [1] if has_unit else None
+
+    # Ultra-fast path using pandas C parser
+    try:
+        import pandas as pd
+        df = pd.read_csv(io.BytesIO(raw), skiprows=skip, header=0, dtype=float, engine="c")
+        if len(df.columns) != expected_count:
+            raise NumericArrayLoadError(f"column_count_mismatch:{len(df.columns)}")
+        return df.to_numpy()
+    except Exception as exc:
+        if isinstance(exc, NumericArrayLoadError):
+            raise
+        pass
+
+    # Fallback to pure Python reader for small test fixtures
     audit: list[str] = []
     try:
-        rows = parse_csv_rows(decode_text(sanitize_null_bytes(raw, audit)))
+        rows = parse_csv_rows(decode_text(raw))
     except csv.Error as exc:
         raise NumericArrayLoadError("unparseable_csv") from exc
 
-    expected_count = expected_column_count or len(canonical_columns)
-    if not rows:
-        raise NumericArrayLoadError("empty_file")
-    if not has_valid_header(rows[0], canonical_columns):
-        raise NumericArrayLoadError("invalid_header")
-    column_issue = validate_columns(rows, expected_count)
-    if column_issue is not None:
+    if column_issue := validate_columns(rows, expected_count):
         raise NumericArrayLoadError(column_issue)
 
     numeric_rows: list[list[float]] = []
@@ -214,3 +239,4 @@ def load_full_numeric_array(
         except ValueError as exc:
             raise NumericArrayLoadError("non_numeric_signal_value") from exc
     return numeric_rows
+

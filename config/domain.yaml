@@ -13,18 +13,31 @@ csv_parser:
 domain_name: DAQ Condition Intelligence
 entity_aliases: {}
 entity_types:
-- Equipment
-- Procedure
-- RegulatoryClause
-- Person
-- Incident
-- Parameter
-- Condition
-- Recording
-- SignalWindow
-- Finding
-- Document
-- Concept
+  # DAQ
+  - Condition
+  - Session
+  - Recording
+  - SignalWindow
+  - Finding
+  - Channel
+  - Event
+  # Documentation
+  - Document
+  - Component
+  - Process
+  - Parameter
+  - Procedure
+  - Fault
+  - Concept
+  # Email / Organizational
+  - Person
+  - Organization
+  - Email
+  - EmailThread
+  # Legacy
+  - Equipment
+  - Incident
+  - RegulatoryClause
 expected_column_count: 7
 feature_set:
   freq_domain:
@@ -90,18 +103,31 @@ recording_folder_pattern: '^(?P<condition_id>\d+)_S(?P<S>\d+)_F(?P<F>\d+)_D(?P<D
 
   '
 relation_types:
-- MAINTAINED_BY
-- PART_OF
-- MENTIONED_IN
-- CAUSED_BY
-- SUPERSEDES
-- CAPTURED_UNDER
-- HAS_WINDOW
-- EXHIBITS_PATTERN
-- SIMILAR_TO
-- DOCUMENTS
-- EXPLAINS
-- RELATED_TO
+  # DAQ
+  - CAPTURED_UNDER
+  - HAS_WINDOW
+  - EXHIBITS_PATTERN
+  - OCCURRED_DURING
+  # Documentation
+  - DOCUMENTS
+  - PART_OF
+  - REQUIRES
+  - CAUSED_BY
+  - EXPLAINS
+  # Email / Organizational
+  - SENT
+  - RECEIVED
+  - PART_OF_THREAD
+  - WORKS_AT
+  - MENTIONS
+  - DISCUSSES
+  # Cross-source / Graph-wide
+  - RELATED_TO
+  - CORROBORATES
+  - MAINTAINED_BY
+  - SIMILAR_TO
+  - SUPERSEDES
+  - MENTIONED_IN
 sampling:
   assumed_hz: null
 system_prompt_template: 'You are a DAQ evidence assistant for {domain_name}. Answer

@@ -285,13 +285,51 @@ def extract_entity_mentions(query: str) -> List[str]:
     return list(mentions)
 
 
-def graph_augment(query: str, retrieved_chunks: List[Chunk], max_triplets: int = 5) -> List[Chunk]:
-    """Retrieves 1-hop triplet neighbors for entity mentions, scores them by query-token overlap,
-    and appends only the most relevant max_triplets as extra context (PathRAG-style pruning)."""
-    entities = extract_entity_mentions(query)
+def graph_augment(query: str, retrieved_chunks: List[Chunk], max_triplets: int = 5, max_hops: int = 2) -> List[Chunk]:
+    """Retrieves multi-hop graph context and triplet neighbors for entity mentions,
+    scores them by relevance, and appends the top max_triplets/paths as extra context."""
+    from retrieval.graph_query import traverse_from_query
+    from retrieval.query_understanding import understand_query
 
-    from knowledge.graph_store import neo4j
     augmented = list(retrieved_chunks)
+    qu_res = understand_query(query)
+
+    # 1. Try unified multi-hop traversal from Step 1 seed entities
+    if qu_res.seed_node_ids:
+        subgraph = traverse_from_query(qu_res, max_hops=max_hops, max_nodes=30, max_edges=50)
+        if subgraph.paths or subgraph.triplets:
+            # Score by token overlap
+            query_tokens = set(query.lower().split())
+
+            candidates = []
+            for p in subgraph.paths:
+                score = len(query_tokens.intersection(set(p.formatted.lower().split())))
+                candidates.append((score, f"Graph Path ({p.hop_count} hops): {p.formatted}"))
+
+            for t in subgraph.triplets:
+                score = len(query_tokens.intersection(set(t.lower().split())))
+                candidates.append((score, f"Graph Context: {t}"))
+
+            # Sort and deduplicate
+            sorted_candidates = sorted(candidates, key=lambda x: x[0], reverse=True)
+            seen_texts = set()
+            added = 0
+            for _, text_str in sorted_candidates:
+                if text_str not in seen_texts and added < max_triplets:
+                    seen_texts.add(text_str)
+                    augmented.append(Chunk(
+                        chunk_id=f"graph_aug_{added}",
+                        doc_id="knowledge_graph",
+                        text=text_str,
+                        metadata={"modality": "graph"}
+                    ))
+                    added += 1
+            if added > 0:
+                return augmented
+
+    # 2. Fallback legacy 1-hop triplet scan
+    entities = extract_entity_mentions(query)
+    from knowledge.graph_store import neo4j
 
     all_triplets = []
     for e in entities:
@@ -300,9 +338,7 @@ def graph_augment(query: str, retrieved_chunks: List[Chunk], max_triplets: int =
     if not all_triplets:
         return augmented
 
-    # Score triplets by token overlap with the query, keep only the most relevant
     query_tokens = set(query.lower().split())
-
     def score_triplet(triplet: str) -> int:
         return len(query_tokens.intersection(set(triplet.lower().split())))
 
