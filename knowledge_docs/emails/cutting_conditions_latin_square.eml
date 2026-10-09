@@ -1,0 +1,26 @@
+From: Dr. Elena Rodriguez <dr.elena.rodriguez@mondragon-machining.org>
+To: DAQ Team <daq-team@machining-lab.org>, David Chen <david.chen@machining-lab.org>, Marcus Vance <marcus.vance@machining-lab.org>
+Subject: Experimental Matrix for 25 Milling Process Conditions (S, F, D)
+Date: Mon, 08 Jan 2024 10:00:00 +0100
+Message-ID: <email-maint-006@machining-lab.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Dear Team,
+
+Please find the approved 5x5 Orthogonal Latin Square experimental design for our smart tool condition monitoring research on the CNC milling dataset.
+
+Machining Parameters Overview:
+- 4 Spindle Speeds (S): 800, 1040, 1280, 1600 RPM
+- 4 Feed Rates (F): 20, 35, 50, 65 mm/min
+- 5 Depths of Cut (D): 0.10, 0.25, 0.35, 0.45, 0.60 mm
+- Total Conditions: 25 distinct process combinations (Condition 1 through Condition 25).
+- Sensor Setup: 6 analog channels sampled at 10,000 Hz (Vib_Spindle, Vib_Table, X_Load_Cell, Y_Load_Cell, Z_Load_Cell, Current).
+- Target Workpiece: AISI 1045 medium carbon steel blocks milled with 4-flute indexable carbide face milling cutter.
+
+Let's ensure all baseline recordings are profiled and Mahalanobis anomaly thresholds established before wear runs.
+
+Best regards,
+Dr. Elena Rodriguez
+Principal Investigator & Head of Machining Research
+Mondragon Advanced Manufacturing Group

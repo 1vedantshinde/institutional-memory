@@ -1,0 +1,85 @@
+{"reasons": ["null_bytes_removed", "column_count_mismatch:2"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/Readngs_DAQ_Data/3_S800_F30_D0.20/Recording 34.csv"}
+{"reasons": ["column_count_mismatch:4"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/Readngs_DAQ_Data/3_S800_F30_D0.20/Recording 35.csv"}
+{"reasons": ["column_count_mismatch:11"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/Readngs_DAQ_Data/3_S800_F30_D0.20/Recording 4.csv"}
+{"reasons": ["column_count_mismatch:4"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/Readngs_DAQ_Data/3_S800_F30_D0.20/Recording 5.csv"}
+{"reasons": ["column_count_mismatch:9"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/Readngs_DAQ_Data/3_S800_F30_D0.20/Recording 8.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:2"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 12.csv"}
+{"reasons": ["column_count_mismatch:9"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 13.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:6"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 14.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:1"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 15.csv"}
+{"reasons": ["column_count_mismatch:4"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 16.csv"}
+{"reasons": ["column_count_mismatch:5"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 17.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:1"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 28.csv"}
+{"reasons": ["column_count_mismatch:1"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 29.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:2"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 3.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:3"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 30.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:6"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 31.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:3"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 32.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:2"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/3_S800_F30_D0.20/Recording 34.csv"}
+{"reasons": ["column_count_mismatch:4"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/3_S800_F30_D0.20/Recording 35.csv"}
+{"reasons": ["column_count_mismatch:11"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/3_S800_F30_D0.20/Recording 4.csv"}
+{"reasons": ["column_count_mismatch:4"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/3_S800_F30_D0.20/Recording 5.csv"}
+{"reasons": ["column_count_mismatch:9"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/3_S800_F30_D0.20/Recording 8.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:2"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 12.csv"}
+{"reasons": ["column_count_mismatch:9"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 13.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:6"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 14.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:1"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 15.csv"}
+{"reasons": ["column_count_mismatch:4"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 16.csv"}
+{"reasons": ["column_count_mismatch:5"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 17.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:1"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 28.csv"}
+{"reasons": ["column_count_mismatch:1"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 29.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:2"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 3.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:3"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 30.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:6"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 31.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:3"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 32.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:2"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/3_S800_F30_D0.20/Recording 34.csv"}
+{"reasons": ["column_count_mismatch:4"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/3_S800_F30_D0.20/Recording 35.csv"}
+{"reasons": ["column_count_mismatch:11"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/3_S800_F30_D0.20/Recording 4.csv"}
+{"reasons": ["column_count_mismatch:4"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/3_S800_F30_D0.20/Recording 5.csv"}
+{"reasons": ["column_count_mismatch:9"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/3_S800_F30_D0.20/Recording 8.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:2"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 12.csv"}
+{"reasons": ["column_count_mismatch:9"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 13.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:6"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 14.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:1"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 15.csv"}
+{"reasons": ["column_count_mismatch:4"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 16.csv"}
+{"reasons": ["column_count_mismatch:5"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 17.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:1"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 28.csv"}
+{"reasons": ["column_count_mismatch:1"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 29.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:2"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 3.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:3"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 30.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:6"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 31.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:3"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 32.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:2"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/3_S800_F30_D0.20/Recording 34.csv"}
+{"reasons": ["column_count_mismatch:4"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/3_S800_F30_D0.20/Recording 35.csv"}
+{"reasons": ["column_count_mismatch:11"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/3_S800_F30_D0.20/Recording 4.csv"}
+{"reasons": ["column_count_mismatch:4"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/3_S800_F30_D0.20/Recording 5.csv"}
+{"reasons": ["column_count_mismatch:9"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/3_S800_F30_D0.20/Recording 8.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:2"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 12.csv"}
+{"reasons": ["column_count_mismatch:9"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 13.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:6"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 14.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:1"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 15.csv"}
+{"reasons": ["column_count_mismatch:4"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 16.csv"}
+{"reasons": ["column_count_mismatch:5"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 17.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:1"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 28.csv"}
+{"reasons": ["column_count_mismatch:1"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 29.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:2"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 3.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:3"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 30.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:6"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 31.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:3"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 32.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:2"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/3_S800_F30_D0.20/Recording 34.csv"}
+{"reasons": ["column_count_mismatch:4"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/3_S800_F30_D0.20/Recording 35.csv"}
+{"reasons": ["column_count_mismatch:11"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/3_S800_F30_D0.20/Recording 4.csv"}
+{"reasons": ["column_count_mismatch:4"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/3_S800_F30_D0.20/Recording 5.csv"}
+{"reasons": ["column_count_mismatch:9"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/3_S800_F30_D0.20/Recording 8.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:2"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 12.csv"}
+{"reasons": ["column_count_mismatch:9"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 13.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:6"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 14.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:1"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 15.csv"}
+{"reasons": ["column_count_mismatch:4"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 16.csv"}
+{"reasons": ["column_count_mismatch:5"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 17.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:1"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 28.csv"}
+{"reasons": ["column_count_mismatch:1"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 29.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:2"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 3.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:3"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 30.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:6"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 31.csv"}
+{"reasons": ["null_bytes_removed", "column_count_mismatch:3"], "source_path": "/home/CL502-22/Downloads/neil/riddhi/institutional-memory/dataset/Readngs_DAQ_Data/4_S800_F35_D0.25/Recording 32.csv"}

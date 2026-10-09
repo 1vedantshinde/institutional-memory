@@ -79,14 +79,20 @@ def run_unified_ingest(
 
     # 3. Ingest & Profile DAQ Sensor Dataset (CSVs)
     print("\n[3/4] Ingesting & Profiling DAQ Sensor Dataset (CSVs)...")
-    dataset_root = daq_api.resolve_daq_dataset_root("dataset/Readngs_DAQ_Data")
-    config_path = daq_api.resolve_project_path("config/domain.yaml")
-
-    daq_api._run_daq_ingest(dataset_root, config_path, force=force)
-    conditions_count = len(daq_api.daq_state.conditions)
-    recordings_count = len(daq_api.daq_state.recordings)
-    canonical_count = len([r for r in daq_api.daq_state.recordings if r.schema_status == "canonical"])
-    print(f"  ✓ DAQ Profile Complete: {recordings_count} recordings ({canonical_count} canonical) across {conditions_count} conditions.")
+    conditions_count = 0
+    recordings_count = 0
+    canonical_count = 0
+    try:
+        dataset_root = daq_api.resolve_daq_dataset_root("dataset/Readngs_DAQ_Data")
+        config_path = daq_api.resolve_project_path("config/domain.yaml")
+        daq_api._run_daq_ingest(dataset_root, config_path, force=force)
+        conditions_count = len(daq_api.daq_state.conditions)
+        recordings_count = len(daq_api.daq_state.recordings)
+        canonical_count = len([r for r in daq_api.daq_state.recordings if r.schema_status == "canonical"])
+        print(f"  ✓ DAQ Profile Complete: {recordings_count} recordings ({canonical_count} canonical) across {conditions_count} conditions.")
+    except Exception as e:
+        print(f"  ℹ DAQ CSV dataset not present ({e}).")
+        print("  ℹ Running in dataset-free mode: PDF manuals, machine emails, ontology graph, and ML models are fully active.")
 
     # 4. Pre-compute Baseline Signal Analytics & Findings
     print("\n[4/4] Pre-computing Baseline Signal Analytics...")
@@ -118,6 +124,8 @@ def run_unified_ingest(
         # Hydrate all cached analyses into active memory and indexes
         daq_api._restore_cached_analyses()
         print(f"  ✓ Pre-warmed {analysed_conditions} condition baselines and anomaly findings in memory & .daq_cache/")
+    else:
+        print("  ℹ Skipping DAQ signal pre-computation (no raw DAQ CSV recordings mounted).")
 
     elapsed = time.time() - start_time
     print("\n" + "=" * 65)

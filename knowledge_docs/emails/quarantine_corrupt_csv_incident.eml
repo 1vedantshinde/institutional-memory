@@ -1,0 +1,23 @@
+From: Rachel Torres <rachel.torres@machining-lab.org>
+To: Marcus Vance <marcus.vance@machining-lab.org>, DAQ Team <daq-team@machining-lab.org>
+Subject: Quarantine Notice: Corrupt CSV File Formats in Raw DAQ Batches
+Date: Tue, 23 Jan 2024 16:45:00 +0100
+Message-ID: <email-maint-004@machining-lab.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Hi Marcus,
+
+During the automated profiling of the DAQ dataset, our ingestion quality gate identified and isolated 17 non-canonical CSV files into quarantine:
+- 12 files quarantined for column_count_mismatch (missing Z_Load_Cell or Current columns from legacy 4-channel DAQ card tests).
+- 4 files quarantined for null_bytes / non_numeric_signal_values due to incomplete buffer flush during emergency machine stop.
+- 1 file quarantined for missing_header.
+
+Total discovered files: 822.
+Total canonical files approved for baseline analytics: 805.
+
+Per the strict quality policy in config/domain.yaml, quarantined files will remain segregated in quarantine.jsonl and will NOT be coerced, repaired, or fed into Mahalanobis baseline computation.
+
+Rachel Torres
+Data Quality & Pipeline Integrity Lead
+Machining Intelligence Laboratory

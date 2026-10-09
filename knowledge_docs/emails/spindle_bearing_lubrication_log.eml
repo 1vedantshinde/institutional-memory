@@ -1,0 +1,23 @@
+From: Tom Bradley <tom.bradley@facility-engineering.org>
+To: Marcus Vance <marcus.vance@machining-lab.org>, David Chen <david.chen@machining-lab.org>
+Subject: Completed Spindle Bearing Lubrication & Thermal Check
+Date: Thu, 25 Jan 2024 08:20:00 +0100
+Message-ID: <email-maint-005@machining-lab.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Marcus / David,
+
+Routine preventive maintenance was completed on the Deckel Maho CNC vertical machining center spindle unit this morning.
+
+Service Notes:
+1. Spindle ceramic hybrid ball bearings inspected: no cage damage or spalling observed.
+2. Klüber high-speed spindle grease replenished (6.5 ml per bearing pocket).
+3. Motor current draw test at 1600 rpm no-load speed stabilized at 1.85 A (well below the 3.5 A safety trip limit).
+4. Thermal sensor at front spindle bearing stabilized at 32.4°C after 30-minute test run.
+
+The machine spindle is certified ready for continuous Latin Square experimental runs across conditions 1 through 25.
+
+Tom Bradley
+Senior Maintenance & Reliability Engineer
+Facility Engineering Services

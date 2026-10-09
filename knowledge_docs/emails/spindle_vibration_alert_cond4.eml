@@ -1,0 +1,24 @@
+From: Marcus Vance <marcus.vance@machining-lab.org>
+To: Dr. Elena Rodriguez <dr.elena.rodriguez@mondragon-machining.org>, Maintenance Team <maintenance-team@machining-lab.org>
+Subject: High Spindle Vibration Alert during Condition 4 Runs (S800 F35 D0.25)
+Date: Mon, 15 Jan 2024 09:30:00 +0100
+Message-ID: <email-maint-001@machining-lab.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Hi Elena and Team,
+
+During the automated analysis of Condition 4 (Spindle Speed S=800 rpm, Feed Rate F=35 mm/min, Depth of Cut D=0.25 mm), our DAQ monitoring system detected significant anomalies on the Vib_Spindle channel (accelerometer mounted on the spindle housing).
+
+Key Observations:
+- Anomaly score on Vib_Spindle reached 5.25, well above the 3.0σ baseline threshold.
+- Dominant feature deviations include Kurtosis (+4.8σ) and Crest Factor (+3.9σ), indicating sharp impact-like vibration spikes rather than stationary cutting chatter.
+- Table vibration (Vib_Table) and load cells remained within nominal tolerances.
+
+Recommendation:
+Please perform a physical inspection of the spindle bearing assembly and verify tool holder runout before proceeding with Condition 5 recordings.
+
+Best regards,
+Marcus Vance
+Lead DAQ & Test Engineer
+Machining Intelligence Laboratory

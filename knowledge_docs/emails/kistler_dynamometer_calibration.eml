@@ -1,0 +1,23 @@
+From: Alex Rivera <alex.rivera@machining-lab.org>
+To: DAQ Team <daq-team@machining-lab.org>, Marcus Vance <marcus.vance@machining-lab.org>
+Subject: Calibration & Zero-Drift Verification for Kistler 3-Axis Load Cells
+Date: Fri, 19 Jan 2024 11:00:00 +0100
+Message-ID: <email-maint-003@machining-lab.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Team,
+
+The multi-component Kistler dynamometer table setup has been calibrated ahead of the 25-condition milling experimental sequence.
+
+Verification Summary:
+- X_Load_Cell, Y_Load_Cell, and Z_Load_Cell piezoelectric transducers were static-loaded up to 5 kN; linearity R² > 0.9998 across all axes.
+- Zero-offset drift on raw voltage channels is within ±0.005 V after 1-hour warm-up.
+- Charge amplifier sensitivity settings: X = -7.82 pC/N, Y = -7.84 pC/N, Z = -3.71 pC/N.
+- Synchronized DAQ sampling rate confirmed at exactly 10,000 Hz across all 6 analog channels (Vib_Spindle, Vib_Table, X_Load_Cell, Y_Load_Cell, Z_Load_Cell, Current).
+
+All sensor channels are clear for canonical data acquisition.
+
+Alex Rivera
+Instrumentation & Calibration Specialist
+Machining Intelligence Laboratory

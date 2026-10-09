@@ -1,0 +1,24 @@
+From: David Chen <david.chen@machining-lab.org>
+To: Sarah Jenkins <sarah.jenkins@machining-lab.org>, Marcus Vance <marcus.vance@machining-lab.org>
+Subject: Severe Flank Wear & Chatter Observed on Condition 12 Cutters
+Date: Wed, 17 Jan 2024 14:15:00 +0100
+Message-ID: <email-maint-002@machining-lab.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Hi Sarah,
+
+Following the milling passes under Condition 12 (Spindle Speed S=1040 rpm, Feed Rate F=50 mm/min, Depth of Cut D=0.45 mm), I inspected the face milling cutter inserts under the optical microscope.
+
+Findings:
+- Measured average flank wear land (VB) exceeded 0.38 mm on tooth #2 and #4 (exceeding ISO 3685 tool life criterion of 0.35 mm).
+- Z_Load_Cell and X_Load_Cell showed heavy axial thrust force fluctuations with audible chatter harmonics.
+- Vib_Table sensor recorded elevated mid-band spectral energy.
+
+Action Taken:
+I have indexed the tool insert indices and scheduled replacement of the cemented carbide inserts. Do not restart heavy cuts on D=0.45 mm until new inserts are torqued and zeroed.
+
+Regards,
+David Chen
+Senior CNC Milling Operator
+Machining Intelligence Laboratory

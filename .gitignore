@@ -22,18 +22,24 @@ ENV/
 
 
 
-# Runtime DAQ artifacts: source data must be mounted or provided separately.
+# Raw multi-gigabyte DAQ dataset and evaluation dumps (mounted or provided separately)
 data/
 datasets/
 dataset/
 emaildata/
 eval_mail/
-knowledge_docs/
-quarantine/
-artifacts/
 runtime/
 runtime/daq_cache/
 .daq_cache/
+
+# Allow essential knowledge documents, machine maintenance emails, and ML model artifacts
+!knowledge_docs/
+!knowledge_docs/**
+!artifacts/
+!artifacts/tool_wear/
+!artifacts/tool_wear/**
+!quarantine/
+!quarantine/quarantine_log.jsonl
 
 # Raw and processed data formats
 *.csv
@@ -41,14 +47,18 @@ runtime/daq_cache/
 *.parquet
 *.h5
 *.hdf5
-*.eml
 *.msg
 *.mbox
-*.jsonl
 *.bin
 *.pt
 *.pth
 *.onnx
+
+# Allow machine emails and specific JSON/JSONL fixtures
+!knowledge_docs/emails/*.eml
+!quarantine/quarantine_log.jsonl
+!artifacts/tool_wear/evaluation.json
+!artifacts/tool_wear/model.joblib
 
 # Local API uploads, except committed test fixture
 uploads/*
