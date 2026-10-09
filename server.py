@@ -166,70 +166,10 @@ def _start_automatic_analysis(condition_id: str, channel: str) -> bool:
     return False
 
 
-def _answer_from_knowledge_docs(question: str) -> dict[str, Any]:
+def _answer_from_knowledge_docs(question: str) -> dict[str, Any] | None:
     from llm.orchestrator import answer_unified_query, answer_from_documents, llm
 
-<<<<<<< HEAD
-    # 1. First run the unified 6-step cross-source pipeline (PDFs, emails, ontology, sessions)
-    try:
-        u_ans = answer_unified_query(question)
-        if not u_ans.get("in_scope") or u_ans.get("route") == "declined":
-            return {
-                "answer": u_ans.get("answer", "This system answers questions about the CNC machine, its operation, documentation, sessions, and associated knowledge."),
-                "citations": [],
-                "finding_count": 0,
-                "sources": [],
-                "route": "declined",
-            }
-
-        sources = []
-        for idx, doc in enumerate(u_ans.get("doc_citations", []), start=1):
-            sources.append({
-                "label": f"Source {idx}",
-                "source_path": doc.get("source_path", "knowledge_docs"),
-                "doc_id": doc.get("doc_id"),
-                "chunk_id": doc.get("chunk_id"),
-                "snippet": doc.get("snippet", ""),
-            })
-        for idx, eml in enumerate(u_ans.get("email_citations", []), start=1):
-            sources.append({
-                "label": f"Email {idx}",
-                "source_path": eml.get("source_path", "knowledge_docs/emails"),
-                "doc_id": eml.get("email_id"),
-                "chunk_id": eml.get("chunk_id"),
-                "subject": eml.get("subject", ""),
-                "sender": eml.get("sender", ""),
-                "snippet": eml.get("snippet", ""),
-            })
-        for idx, fnd in enumerate(u_ans.get("finding_citations", []), start=1):
-            sources.append({
-                "label": f"Finding {idx}",
-                "source_path": fnd.get("source_path", "session_data"),
-                "finding_id": fnd.get("finding_id"),
-                "channel": fnd.get("channel"),
-                "snippet": fnd.get("snippet", ""),
-            })
-
-        # If unified pipeline retrieved sources or answered successfully
-        if sources or u_ans.get("answer"):
-            return {
-                "answer": u_ans.get("answer", ""),
-                "citations": u_ans.get("finding_citations", []),
-                "finding_count": len(u_ans.get("finding_citations", [])),
-                "email_citations": u_ans.get("email_citations", []),
-                "doc_citations": u_ans.get("doc_citations", []),
-                "sources": sources,
-                "route": u_ans.get("route", "unified"),
-            }
-    except LLMProviderUnavailableError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except Exception as e:
-        print(f"[KnowledgeQuery] unified pipeline error: {e}")
-
-    # 2. Try document-only retrieval fallback
-=======
     # 1. Try document/glossary retrieval first (for glossary terms, RMS, kurtosis, SOPs)
->>>>>>> 0b6fcce (fix(retrieval): refine email modality filter and knowledge doc chat routing)
     try:
         ans = answer_from_documents(question)
         if ans is not None and ans.get("sources"):
@@ -237,17 +177,6 @@ def _answer_from_knowledge_docs(question: str) -> dict[str, Any]:
     except LLMProviderUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as e:
-<<<<<<< HEAD
-        print(f"[KnowledgeQuery] documents fallback error: {e}")
-
-    return {
-        "answer": "This system answers questions about the CNC machine, its operation, technical documentation, operational emails, and sensor diagnostics.",
-        "citations": [],
-        "finding_count": 0,
-        "sources": [],
-        "route": "general_knowledge",
-    }
-=======
         print(f"[KnowledgeDocs] document retrieval fallback error: {e}")
 
     # 2. Run the unified 6-step cross-source pipeline (emails, ontology, cross-source knowledge)
@@ -300,7 +229,6 @@ def _answer_from_knowledge_docs(question: str) -> dict[str, Any]:
         print(f"[KnowledgeDocs] unified query error: {e}")
 
     return None
->>>>>>> 0b6fcce (fix(retrieval): refine email modality filter and knowledge doc chat routing)
 
 
 
