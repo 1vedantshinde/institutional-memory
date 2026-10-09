@@ -927,19 +927,36 @@ by default.
 3. **End-to-End Query Execution Pipeline Orchestration (`answer_unified_query()` & `UnifiedGroundedOrchestrator`)**:
    - Implements the complete 6-step sequence:
      `Query → Step 1 (Understand Intent/Entities) → Step 2 (Validate CNC Scope) → Step 3 (Traverse Graph) → Step 4 (Retrieve Data) → Step 5 (Analyze/Reason) → Step 6 (Generate Grounded Answer)`.
-   - Strictly enforces Step 2 Scope Gate: out-of-scope queries return `IN_SCOPE_DECLARE` verbatim with 0 downstream calls.
-   - Automatically routes answers into `cross_source`, `session_findings`, `documents`, `emails`, `general_knowledge`, or `declined`.
+---
+
+## Step 7 — Machine Email Ingestion & Discard Quality Filter (2026-10-08)
+
+**Status:** Complete and verified across 5 unit test cases, end-to-end integration tests, and live server endpoints.
+
+**What:** Implemented deterministic machine email ingestion, domain quality filtering, graph entity linking, and unified router integration in [`ingestion/emails.py`](ingestion/emails.py), [`retrieval/node_data_retriever.py`](retrieval/node_data_retriever.py), and [`server.py`](server.py):
+1. **Machine Email Corpus (`knowledge_docs/emails/`)**:
+   - Seeded 6 operational/maintenance `.eml` emails:
+     - `spindle_vibration_alert_cond4.eml`: Marcus Vance alert on Condition 4 ($S800, F35, D0.25$) high spindle vibration and kurtosis (+4.8σ).
+     - `tool_wear_inspection_cond12.eml`: David Chen report on severe flank wear ($VB > 0.38\text{ mm}$) and chatter on Condition 12.
+     - `kistler_dynamometer_calibration.eml`: Alex Rivera verification of 3-axis load cells and 10 kHz synchronized sampling.
+     - `quarantine_corrupt_csv_incident.eml`: Rachel Torres documentation of non-canonical CSV quarantining.
+     - `spindle_bearing_lubrication_log.eml`: Tom Bradley maintenance log on spindle bearings and motor current draw.
+     - `cutting_conditions_latin_square.eml`: Dr. Elena Rodriguez specification of the 25-condition $(S, F, D)$ Latin Square matrix.
+2. **Machine Relevance Quality Filter (`is_machine_relevant_email()`)**:
+   - Evaluates incoming `.eml` files against authentic CNC machine hardware, DAQ sensor channels, process parameter ranges, and quality standards (ISO 3685, flank wear VB).
+   - Discards non-machine emails (e.g. Enron trading, general corporate talk, energy contracts, payroll) with logged reasons (`discarded_not_machine_related`).
+3. **Automated Graph Linking (`_link_email_knowledge_graph()`)**:
+   - Extracts and links typed Neo4j graph nodes: `Email`, `Person` (Senders/Recipients), `Component`, `Fault`, and `Condition`.
+   - Populates directional relationships (`SENT`, `RECEIVED`, `MENTIONS`, `CORROBORATES`).
+4. **Unified Router & Fast Warm Start (`server.py` & `api/main.py`)**:
+   - Routed all email, documentation, personnel, and cross-source queries through `answer_unified_query()` with structured multi-modal citations (`[Email N]`, `[Source N]`, `[Finding N]`).
+   - Reordered `_warm_start_all()` to index knowledge documents and machine emails immediately (< 1s) on server boot.
 
 **Verification:**
-- Added `tests/test_grounded_answer_orchestration.py` with 7 passing tests covering:
-  1. Prompt formatting with distinct `[Finding N]`, `[Doc N]`, `[Email N]` tags and graph traversal context.
-  2. Structured citation mapping.
-  3. Worked Example 1: *"How does the spindle work?"* -> Grounded in `[Doc N]` only.
-  4. Worked Example 2: *"Who discussed the spindle problem?"* -> Grounded in `[Email N]` + graph-derived Person.
-  5. Worked Example 3: *"What happened to the spindle in session 42?"* -> Grounded in `[Finding N]` only (triggering analysis on-demand).
-  6. Worked Example 4: *"Was the issue in session 42 related to the problem discussed in the emails?"* -> Grounded in `[Finding N]` + `[Doc N]` + `[Email N]` all in one unified answer.
-  7. Out-of-scope query strict decline -> Returns verbatim `IN_SCOPE_DECLARE` with zero LLM generation calls.
-- Ran test suite with `PYTHONPATH=. pytest tests/test_grounded_answer_orchestration.py -v` (7 passed in 1.47s).
+- Added `tests/test_email_ingestion.py` with 5 passing tests.
+- Full backend suite: **135 passed, 2 skipped** (100% pass rate).
+- Full frontend suite: **50 passed** (100% pass rate).
+
 
 
 
