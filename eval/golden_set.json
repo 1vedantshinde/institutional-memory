@@ -1,0 +1,26 @@
+[
+  {
+    "query": "What should be done if Pump-101 fails?",
+    "expected_doc_ids": [],
+    "expected_entities": ["Pump-101", "SOP-402"],
+    "notes": "Populate expected_doc_ids with real doc_ids from your corpus after first ingestion run."
+  },
+  {
+    "query": "What is SOP-402?",
+    "expected_doc_ids": [],
+    "expected_entities": ["SOP-402"],
+    "notes": "LOOKUP route — should retrieve SOP-related chunks with high BM25 score."
+  },
+  {
+    "query": "What procedure applies to Compressor-202?",
+    "expected_doc_ids": [],
+    "expected_entities": ["Compressor-202"],
+    "notes": "PROCEDURAL route — graph augmentation should surface MAINTAINED_BY edges."
+  },
+  {
+    "query": "Explain why pressure might spike during an emergency shutdown",
+    "expected_doc_ids": [],
+    "expected_entities": [],
+    "notes": "SEMANTIC route — vector similarity dominant."
+  }
+]

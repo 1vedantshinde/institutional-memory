@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Sequence
+import numpy as np
 
 from core.schema import Recording, SignalWindow
 from ingestion.quality import CANONICAL_COLUMNS
@@ -48,10 +49,15 @@ def window_recording(
     """
     if recording.schema_status != "canonical":
         raise ValueError("only canonical recordings can be windowed")
-    if any(len(row) != len(CANONICAL_COLUMNS) for row in numeric_array):
-        raise ValueError("numeric_array does not match the canonical seven-column schema")
+    if isinstance(numeric_array, np.ndarray):
+        if numeric_array.ndim != 2 or numeric_array.shape[1] != len(CANONICAL_COLUMNS):
+            raise ValueError("numeric_array does not match the canonical seven-column schema")
+        time_values = numeric_array[:, 0]
+    else:
+        if any(len(row) != len(CANONICAL_COLUMNS) for row in numeric_array):
+            raise ValueError("numeric_array does not match the canonical seven-column schema")
+        time_values = [float(row[0]) for row in numeric_array]
 
-    time_values = [float(row[0]) for row in numeric_array]
     window_time_values = time_values
     resampling_hz: float | None = None
     try:

@@ -3,6 +3,7 @@
 Ensures character-window chunking fallback while allowing code and custom modalities
 to split on logical boundaries (e.g. double newlines for functions/classes).
 """
+import re
 import uuid
 from typing import List, Dict, Any, Callable, Union
 from core.schema import UnifiedDocument, Chunk
@@ -78,7 +79,15 @@ def default_semantic_split(doc_or_text: Union[UnifiedDocument, str], chunk_size:
     
     while start < len(content):
         end = min(start + chunk_size, len(content))
-        chunk_text = content[start:end]
+        # Snap to word boundaries so chunks don't start/end mid-word (which
+        # breaks keyword matching), unless a single "word" fills the window.
+        if end < len(content):
+            space = content.rfind(" ", start + chunk_size // 2, end)
+            newline = content.rfind("\n", start + chunk_size // 2, end)
+            boundary = max(space, newline)
+            if boundary > start:
+                end = boundary
+        chunk_text = content[start:end].strip()
         
         chunk_metadata = {
             "source_path": source_path,
@@ -98,7 +107,10 @@ def default_semantic_split(doc_or_text: Union[UnifiedDocument, str], chunk_size:
         index += 1
         if end == len(content):
             break
-        start += (chunk_size - overlap)
+        next_start = max(end - overlap, start + 1)
+        # Begin the next chunk at a word start, inside the overlap
+        gap = re.compile(r"\s").search(content, next_start, end)
+        start = gap.end() if gap else next_start
         
     return chunks
 

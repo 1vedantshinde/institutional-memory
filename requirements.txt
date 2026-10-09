@@ -6,6 +6,22 @@ uvicorn
 python-multipart
 numpy
 openpyxl
+python-dotenv
+
+# LLM backends
 openai
 google-genai
-python-dotenv
+anthropic
+
+# PDF text extraction (document knowledge base)
+pypdf
+
+# Optional real infrastructure (in-memory fallbacks are used when not configured)
+qdrant-client
+neo4j
+
+# Neural embeddings + cross-encoder reranking (gate with USE_NEURAL_MODELS=1)
+sentence-transformers
+
+# CAD parsing
+ezdxf

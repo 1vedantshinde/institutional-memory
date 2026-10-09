@@ -6,13 +6,15 @@ import { newId } from '../lib/id'
  * what React context provides.
  */
 
-import type { Citation } from '../api/schemas'
+import type { Citation, DocumentSource } from '../api/schemas'
 
 export interface ChatMessage {
   id: string
   role: 'user' | 'assistant'
   content: string
   citations?: Citation[]
+  /** Knowledge-document passages cited as [Source N] (general questions) */
+  sources?: DocumentSource[]
   findingCount?: number
   timestamp: Date
   error?: {

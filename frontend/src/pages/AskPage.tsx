@@ -34,6 +34,13 @@ function exportMarkdown(messages: ReturnType<typeof getMessages>): void {
         lines.push(`- **${c.label}** (${c.finding_id}): ${c.channel} · ${c.window_id} · ${c.source_path}`)
       }
       lines.push('')
+    } else if (msg.sources?.length) {
+      lines.push(`## [${ts}] System`, '', msg.content, '')
+      lines.push('### Sources')
+      for (const s of msg.sources) {
+        lines.push(`- **${s.label}** (${s.source_path}): ${s.snippet}`)
+      }
+      lines.push('')
     } else {
       lines.push(`## [${ts}] System`, '', msg.content, '')
     }
@@ -71,7 +78,7 @@ export function AskPage() {
       const msgId = addMessage({ role: 'assistant', content: '', timestamp: new Date(), isLoading: true })
       try {
         const res = await postQuery({ question, filters: { condition_id: conditionId, channel: channel || undefined }, top_k: topK })
-        updateMessage(msgId, { content: res.answer, citations: res.citations, findingCount: res.finding_count, isLoading: false })
+        updateMessage(msgId, { content: res.answer, citations: res.citations, sources: res.sources ?? [], findingCount: res.finding_count, isLoading: false })
         addEvidence(res.citations.map((c) => ({ citation: c, conditionId: parsePath(c.source_path).conditionId, recordingNumber: parsePath(c.source_path).recordingNumber, firstSeenAt: new Date(), messageId: msgId })))
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : 'Query failed'

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { BookOpen, Download, ChevronDown, ChevronUp } from 'lucide-react'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
@@ -7,6 +8,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '.
 import { ChannelBadge } from '../components/ChannelBadge'
 import { EvidencePanel } from '../features/ask/EvidencePanel'
 import { getEvidence, subscribe } from '../store/sessionStore'
+import { getFindings } from '../api/proposed'
 import type { SessionEvidence } from '../store/sessionStore'
 import type { Citation } from '../api/schemas'
 import { CHANNELS, CHANNEL_LABELS } from '../lib/channels'
@@ -44,16 +46,45 @@ function exportJson(entries: SessionEvidence[]) {
 }
 
 export function EvidencePage() {
-  const [allEvidence, setAllEvidence] = useState(getEvidence)
+  const [sessionEvidence, setSessionEvidence] = useState(getEvidence)
   const [search, setSearch] = useState('')
   const [channelFilter, setChannelFilter] = useState('')
   const [conditionFilter, setConditionFilter] = useState('')
   const [selected, setSelected] = useState<Citation | null>(null)
   const navigate = useNavigate()
 
+  const { data: backendFindings } = useQuery({
+    queryKey: ['backend-findings'],
+    queryFn: () => getFindings({ limit: 100 }),
+    enabled: true,
+  })
+
   useEffect(() => {
-    return subscribe(() => setAllEvidence(getEvidence()))
+    return subscribe(() => setSessionEvidence(getEvidence()))
   }, [])
+
+  const allEvidence: SessionEvidence[] = sessionEvidence.length > 0
+    ? sessionEvidence
+    : (backendFindings ?? []).map((f) => {
+        const condMatch = f.source_path.match(/(?:^|\/)(\d+)\//) || f.source_path.match(/(?:^|\/)N_(\d+)\//)
+        const condId = condMatch ? condMatch[1] : null
+        return {
+          citation: {
+            label: f.label,
+            finding_id: f.finding_id,
+            model_version: f.model_version,
+            source_path: f.source_path,
+            channel: f.channel,
+            window_id: f.window_id,
+            sample_range: f.sample_range,
+            time_range: f.time_range ?? null,
+          },
+          conditionId: condId,
+          recordingNumber: null,
+          firstSeenAt: new Date(),
+          messageId: 'indexed-finding',
+        }
+      })
 
   const filtered = allEvidence.filter((e) => {
     const c = e.citation
@@ -71,7 +102,7 @@ export function EvidencePage() {
     return true
   })
 
-  const uniqueConditions = [...new Set(allEvidence.map((e) => e.conditionId).filter(Boolean))] as string[]
+  const uniqueConditions = [...new Set(allEvidence.map((e) => e.conditionId).filter(Boolean))].sort((a, b) => (Number(a) || 0) - (Number(b) || 0)) as string[]
 
   return (
     <div className="flex flex-col h-full overflow-hidden">

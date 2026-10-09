@@ -3,6 +3,7 @@ import {
   MOCK_CHAT_INGESTING,
   MOCK_CHAT_ANALYSING,
   MOCK_CHAT_READY,
+  MOCK_CHAT_DOCUMENTS_ANSWER,
   MOCK_CHAT_STATUS_ANALYSING,
   MOCK_CHAT_STATUS_READY,
   MOCK_PROFILE_RUNNING,
@@ -49,13 +50,19 @@ const CORE_URL = import.meta.env.VITE_CORE_API_URL ?? 'http://localhost:8001'
 export const handlers = [
   // ── Chat server ────────────────────────────────────────────────────────────
 
-  http.post(`${CHAT_URL}/chat`, async () => {
+  http.post(`${CHAT_URL}/chat`, async ({ request }) => {
     await delay(400)
     if (isSimulatingOverload()) {
       return HttpResponse.json(
         { detail: 'Language model temporarily unavailable. Analytics are unaffected. Please retry shortly.' },
         { status: 503 },
       )
+    }
+    // Like server.py: without a condition number the question goes to the
+    // project knowledge documents instead of the DAQ findings.
+    const { question = '' } = ((await request.json().catch(() => ({}))) ?? {}) as { question?: string }
+    if (!/condition\s*\d+/i.test(question)) {
+      return HttpResponse.json(MOCK_CHAT_DOCUMENTS_ANSWER, { status: 200 })
     }
     chatCallCount++
     statusCallCount = 0

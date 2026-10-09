@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Activity, AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, Info } from 'lucide-react'
+import { Activity, AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, Info, Search } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as ReTooltip, ResponsiveContainer, Cell } from 'recharts'
 import type { TooltipValueType } from 'recharts'
 import { Button } from '../components/ui/button'
@@ -11,6 +11,7 @@ import { Badge } from '../components/ui/badge'
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/card'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '../components/ui/collapsible'
 import { postIngest, getProfile } from '../api/core'
+import { getConditions } from '../api/proposed'
 import { normalizeProfile } from '../api/normalize'
 import type { NormalizedProfile } from '../api/normalize'
 import { getSettings } from '../store/sessionStore'
@@ -60,6 +61,7 @@ export function DatasetPage() {
   const [force, setForce] = useState(false)
   const [running, setRunning] = useState(false)
   const [rawOpen, setRawOpen] = useState(false)
+  const [condSearch, setCondSearch] = useState('')
   const useMocks = import.meta.env.VITE_USE_MOCKS === 'true'
 
   const { mutate: runIngest, isPending: ingesting, error: ingestError } = useMutation({
@@ -67,13 +69,14 @@ export function DatasetPage() {
     onSuccess: () => {
       setRunning(true)
       queryClient.invalidateQueries({ queryKey: ['profile'] })
+      queryClient.invalidateQueries({ queryKey: ['conditions'] })
     },
   })
 
   const { data: rawProfile, error: profileError } = useQuery({
     queryKey: ['profile'],
     queryFn: getProfile,
-    enabled: running,
+    enabled: true,
     refetchInterval: (query) => {
       if (!running) return false
       const data = query.state.data
@@ -82,6 +85,12 @@ export function DatasetPage() {
       return norm.status === 'complete' || norm.status === 'failed' ? false : 3000
     },
     refetchIntervalInBackground: false,
+  })
+
+  const { data: conditionsData } = useQuery({
+    queryKey: ['conditions'],
+    queryFn: getConditions,
+    enabled: true,
   })
 
   const profile: NormalizedProfile | null = rawProfile ? normalizeProfile(rawProfile) : null
@@ -95,6 +104,18 @@ export function DatasetPage() {
   const quarantineRate = profile && profile.canonical && profile.quarantined != null && profile.discovered != null
     ? profile.quarantined / profile.discovered
     : null
+
+  const filteredConditions = (conditionsData ?? []).filter((c) => {
+    if (!condSearch.trim()) return true
+    const q = condSearch.toLowerCase()
+    return (
+      c.condition_id.toLowerCase().includes(q) ||
+      `condition ${c.condition_id}`.toLowerCase().includes(q) ||
+      String(c.S).includes(q) ||
+      String(c.F).includes(q) ||
+      String(c.D).includes(q)
+    )
+  })
 
   useEffect(() => {
     if (!running) return
@@ -260,6 +281,60 @@ export function DatasetPage() {
                       ))}
                     </tbody>
                   </table>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* 25 Process Conditions Breakdown */}
+            {conditionsData && conditionsData.length > 0 && (
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <div>
+                    <CardTitle>Process Conditions ({conditionsData.length})</CardTitle>
+                    <p className="text-xs text-[var(--muted)] mt-1">
+                      Orthogonal Latin Square (S, F, D) machining parameters across all 25 experimental settings.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="relative">
+                      <Search size={12} className="absolute left-2.5 top-2.5 text-[var(--muted)]" />
+                      <Input
+                        value={condSearch}
+                        onChange={(e) => setCondSearch(e.target.value)}
+                        placeholder="Search conditions..."
+                        className="pl-7 h-8 text-xs w-44 font-mono"
+                      />
+                    </div>
+                    <Badge variant="ok" className="text-[10px]">{conditionsData.length} active</Badge>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto max-h-96">
+                    <table className="w-full text-sm" aria-label="Process Conditions Table">
+                      <thead className="sticky top-0 bg-[var(--surface)] z-10">
+                        <tr className="border-b border-[var(--border)] text-xs text-[var(--muted)]">
+                          <th className="text-left py-2 px-3 font-medium">Condition ID</th>
+                          <th className="text-right py-2 px-3 font-medium">Spindle Speed (S)</th>
+                          <th className="text-right py-2 px-3 font-medium">Feed Rate (F)</th>
+                          <th className="text-right py-2 px-3 font-medium">Depth of Cut (D)</th>
+                          <th className="text-right py-2 px-3 font-medium">Recordings</th>
+                          <th className="text-right py-2 px-3 font-medium">Canonical</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredConditions.map((c) => (
+                          <tr key={c.condition_id} className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface-2)] transition-colors">
+                            <td className="py-2.5 px-3 font-mono font-medium text-[var(--accent)]">Condition {c.condition_id}</td>
+                            <td className="py-2.5 px-3 text-right font-mono text-xs">{c.S} rpm</td>
+                            <td className="py-2.5 px-3 text-right font-mono text-xs">{c.F} mm/min</td>
+                            <td className="py-2.5 px-3 text-right font-mono text-xs">{c.D.toFixed(2)} mm</td>
+                            <td className="py-2.5 px-3 text-right font-mono text-xs text-[var(--muted)]">{c.recording_count}</td>
+                            <td className="py-2.5 px-3 text-right font-mono text-xs text-[var(--ok)] font-medium">{c.canonical_count}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </CardContent>
               </Card>
             )}

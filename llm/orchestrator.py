@@ -21,6 +21,7 @@ from knowledge.ontology import (
 )
 from llm.prompt_builder import build_daq_explanation_prompt, build_system_prompt, build_prompt
 from retrieval.retriever import hybrid_retrieve, graph_augment
+import llm.providers  # noqa: F401 — ensure provider registration side-effects run
 
 # Load only the project-local ignored credential file. Environment variables
 # still take precedence, which is appropriate for deployments and CI.
@@ -36,7 +37,7 @@ def _configured_llm() -> Any:
 
 
 # ``mock`` remains the safe default for local tests. Production must set
-# LLM_PROVIDER=openai and OPENAI_API_KEY; the DAQ API rejects mock answers.
+# LLM_PROVIDER=gemini|openai|anthropic and its API key; the DAQ API rejects mock answers.
 llm = _configured_llm()
 
 
@@ -44,10 +45,6 @@ def score_confidence(response: str, context_chunks: List[Chunk]) -> float:
     """Calculates word-recall overlap confidence score between LLM response and context chunks (0.0 - 1.0)."""
     if not context_chunks or not response:
         return 0.0
-
-    # High default score for simulated/mock answers
-    if "[mock llm response]" in response.lower():
-        return 0.95
 
     # Tokenize response words (alphanumeric, length >= 3)
     response_words = set(w.lower() for w in re.findall(r'\b\w+\b', response) if len(w) >= 3)
@@ -85,15 +82,9 @@ def map_citations(response: str, context_chunks: List[Chunk]) -> List[Dict[str, 
         cited = False
         chunk_id = chunk.chunk_id
 
-        # Check explicit regex match or exact tag substring match
-        if chunk_id in explicit_tags or f"[{chunk_id}]" in response or chunk_id.lower() in response_lower:
+        # Only trust explicit [chunk_id] bracket citations from the LLM
+        if chunk_id in explicit_tags or f"[{chunk_id}]" in response:
             cited = True
-        else:
-            # Fallback: Key-term overlap check
-            chunk_keywords = set(w.lower() for w in re.findall(r'\b\w+\b', chunk.text) if len(w) >= 4)
-            resp_keywords = set(w.lower() for w in re.findall(r'\b\w+\b', response) if len(w) >= 4)
-            if chunk_keywords and len(chunk_keywords.intersection(resp_keywords)) >= 2:
-                cited = True
 
         if cited:
             snippet_text = chunk.text[:150] + "..." if len(chunk.text) > 150 else chunk.text
@@ -152,10 +143,12 @@ class RAGOrchestrator:
 
     def __init__(
         self,
-        llm_key: str = "mock",
+        llm_key: str = None,
         embedder_key: str = "mock",
         vector_store_key: str = "in_memory"
     ):
+        # Respect LLM_PROVIDER env var, falling back to passed llm_key, then "mock"
+        resolved_llm_key = os.getenv("LLM_PROVIDER", llm_key or "mock")
         self.llm = TargetLLMProxy()
         self.vector_store = vector_store_registry.get(vector_store_key)
 
@@ -301,3 +294,216 @@ DAQ_EXPLANATION_SYSTEM_PROMPT = (
     "Explain supplied DAQ findings only. Never compute or infer numeric results; "
     "cite finding IDs in prose. Full recording path/channel/range remain in structured citations."
 )
+
+
+DOCUMENT_ANSWER_SYSTEM_PROMPT = (
+    "Answer only from the supplied project documents and glossary definitions. "
+    "Never compute or infer numeric results; cite sources as [Source N]."
+)
+
+
+def retrieve_document_sources(question: str, limit: int = 4) -> List[Chunk]:
+    """Best knowledge-document chunks for a question.
+
+    Hybrid retrieval (BM25-led unless neural embeddings are on), then — when
+    the question names a concept linked by a DOCUMENTS edge — that document's
+    best chunk is guaranteed a place, so "what is kurtosis?" reaches the
+    glossary even if other documents also mention the word.
+    """
+    from ingestion.knowledge_docs import documents_for_concepts
+    from core.schema import make_doc_id
+    from retrieval.retriever import bm25_index
+
+    hits = [c for c in hybrid_retrieve(question, top_k=limit * 2) if c.text.strip()]
+    selected: List[Chunk] = []
+    for filename in documents_for_concepts(question):
+        doc_id = make_doc_id("text", filename)
+        if any(c.doc_id == doc_id for c in selected):
+            continue
+        best = next((c for c in hits if c.doc_id == doc_id), None) or next(
+            (c for c in bm25_index.search(question, top_k=50) if c.doc_id == doc_id), None
+        )
+        if best is not None:
+            selected.append(best)
+    for chunk in hits:
+        if len(selected) >= limit:
+            break
+        if all(c.chunk_id != chunk.chunk_id for c in selected):
+            selected.append(chunk)
+    return selected[:limit]
+
+
+def answer_from_documents(question: str, limit: int = 4) -> Optional[Dict[str, Any]]:
+    """Evidence-only answer from the project knowledge documents, or None when
+    nothing relevant was retrieved. Same response shape as DAQ answers, with
+    document citations in ``sources`` (labels ``Source N``) and no findings."""
+    from llm.prompt_builder import build_document_answer_prompt
+
+    sources = retrieve_document_sources(question, limit=limit)
+    if not sources:
+        return None
+    prompt = build_document_answer_prompt(question, sources)
+    response = llm.generate(prompt, system_prompt=DOCUMENT_ANSWER_SYSTEM_PROMPT)
+    return {
+        "answer": response,
+        "citations": [],
+        "finding_count": 0,
+        "sources": [
+            {
+                "label": f"Source {number}",
+                "source_path": chunk.metadata.get("source_path", chunk.doc_id),
+                "doc_id": chunk.doc_id,
+                "chunk_id": chunk.chunk_id,
+                "snippet": " ".join(chunk.text.split())[:400],
+            }
+            for number, chunk in enumerate(sources, start=1)
+        ],
+        "route": "documents",
+    }
+
+
+# =============================================================================
+# Step 6 — Unified Multi-Source Grounded Answer Generation Orchestrator
+# =============================================================================
+
+UNIFIED_GROUNDED_SYSTEM_PROMPT = (
+    "Generate concise, factual, evidence-grounded answers citing [Finding N], [Doc N], and [Email N]. "
+    "Never calculate, estimate, or invent facts or relationships not supported by the evidence."
+)
+
+
+def answer_unified_query(
+    query: str,
+    domain: Optional[Any] = None,
+    max_hops: int = 2,
+    llm_provider: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """Execute the complete 6-step Unified Knowledge Graph Query Execution Pipeline.
+
+    Step 1: Understand Intent & Entities (Ontology NER & Session Resolving)
+    Step 2: Validate CNC Context (Strict CNC Scope Gate -> Decline if Out of Scope)
+    Step 3: Traverse Knowledge Graph (Multi-Hop Bounded Expansion)
+    Step 4: Retrieve Relevant Data (Per-Node Passages, Findings & Definitions)
+    Step 5: Analyze & Reason (Ensure Session Analytics Computed + Cross-Source Synthesis)
+    Step 6: Generate Grounded Answer (Unified Multi-Source Prompt with [Finding N], [Doc N], [Email N])
+    """
+    from retrieval.query_understanding import understand_query
+    from retrieval.scope_gate import validate_cnc_scope, IN_SCOPE_DECLARE
+    from retrieval.graph_query import traverse_from_query
+    from retrieval.node_data_retriever import retrieve_data_for_subgraph
+    from analytics.session_analyzer import analyze_cross_source_evidence
+    from llm.prompt_builder import build_grounded_answer_prompt, build_grounded_citations
+
+    active_llm = llm_provider or llm
+
+    # --- Step 1: Understand Intent & Entities ---
+    qu_res = understand_query(query, domain=domain)
+
+    # --- Step 2: Validate CNC Context (Scope Gate) ---
+    gate_res = validate_cnc_scope(query, query_understanding=qu_res, domain=domain, llm_provider=active_llm)
+    if not gate_res.in_scope:
+        decline_text = gate_res.decline_message or IN_SCOPE_DECLARE
+        return {
+            "query": query,
+            "answer": decline_text,
+            "in_scope": False,
+            "citations": [],
+            "finding_citations": [],
+            "doc_citations": [],
+            "email_citations": [],
+            "finding_count": 0,
+            "doc_count": 0,
+            "email_count": 0,
+            "graph_paths": [],
+            "cross_source_links": [],
+            "analysis_triggered": False,
+            "route": "declined",
+            "validation_method": gate_res.validation_method,
+            "query_understanding": qu_res.model_dump() if hasattr(qu_res, "model_dump") else dict(qu_res),
+            "provenance": gate_res.provenance.model_dump() if hasattr(gate_res.provenance, "model_dump") else {},
+        }
+
+    # --- Step 3: Traverse Knowledge Graph ---
+    subgraph = traverse_from_query(qu_res, max_hops=max_hops)
+
+    # --- Step 4: Retrieve Relevant Data ---
+    retrieved_data = retrieve_data_for_subgraph(subgraph, query=query, domain=domain)
+
+    # --- Step 5: Analyze & Reason (Trigger Session Analytics if missing) ---
+    reasoning_res = analyze_cross_source_evidence(retrieved_data, qu_res)
+
+    # --- Step 6: Generate Grounded Answer ---
+    prompt = build_grounded_answer_prompt(
+        query=query,
+        reasoning_result=reasoning_res,
+        retrieved_data=retrieved_data,
+        domain=domain,
+    )
+    response_text = active_llm.generate(prompt, system_prompt=UNIFIED_GROUNDED_SYSTEM_PROMPT)
+
+    # Format structured citations
+    citation_maps = build_grounded_citations(
+        reasoning_result=reasoning_res,
+        retrieved_data=retrieved_data,
+    )
+
+    # Reconstruct graph paths for UI / provenance transparency
+    graph_paths = [p.to_text() for p in subgraph.paths] if subgraph.paths else subgraph.triplets
+
+    # Classify overall answer route
+    if reasoning_res.is_cross_source:
+        route = "cross_source"
+    elif len(citation_maps["finding_citations"]) > 0:
+        route = "session_findings"
+    elif len(citation_maps["doc_citations"]) > 0:
+        route = "documents"
+    elif len(citation_maps["email_citations"]) > 0:
+        route = "emails"
+    else:
+        route = "general_knowledge"
+
+    return {
+        "query": query,
+        "answer": response_text,
+        "in_scope": True,
+        "citations": citation_maps["citations"],
+        "finding_citations": citation_maps["finding_citations"],
+        "doc_citations": citation_maps["doc_citations"],
+        "email_citations": citation_maps["email_citations"],
+        "finding_count": len(citation_maps["finding_citations"]),
+        "doc_count": len(citation_maps["doc_citations"]),
+        "email_count": len(citation_maps["email_citations"]),
+        "graph_paths": graph_paths,
+        "cross_source_links": [
+            link.model_dump() if hasattr(link, "model_dump") else dict(link)
+            for link in reasoning_res.cross_source_links
+        ],
+        "analysis_triggered": reasoning_res.analysis_triggered,
+        "route": route,
+        "query_understanding": qu_res.model_dump() if hasattr(qu_res, "model_dump") else dict(qu_res),
+        "provenance": reasoning_res.provenance.model_dump() if hasattr(reasoning_res.provenance, "model_dump") else {},
+    }
+
+
+class UnifiedGroundedOrchestrator:
+    """End-to-end orchestrator for the 6-step Unified Knowledge Graph pipeline."""
+
+    def __init__(
+        self,
+        llm_provider: Optional[Any] = None,
+        domain: Optional[Any] = None,
+        max_hops: int = 2,
+    ):
+        self.llm = llm_provider or llm
+        self.domain = domain
+        self.max_hops = max_hops
+
+    def query(self, question: str) -> Dict[str, Any]:
+        """Process a user query end-to-end through Steps 1–6."""
+        return answer_unified_query(
+            query=question,
+            domain=self.domain,
+            max_hops=self.max_hops,
+            llm_provider=self.llm,
+        )
+

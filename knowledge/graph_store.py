@@ -1,10 +1,18 @@
-"""In-memory Neo4j-style graph storage with typed neighbor edges."""
+"""Neo4j-style graph storage with typed neighbor edges.
+
+The in-memory simulation is the default and is what the DAQ provenance graph
+uses. A real Neo4j backend is used for the module-level ``neo4j`` driver when
+NEO4J_URI is set and the ``neo4j`` package is installed. Both expose the same
+merge_node(), merge_edge(), get_neighbors(), get_neighbor_triplets(), nodes
+and query() interface.
+"""
 
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Optional
 
 
 @dataclass(frozen=True)
@@ -15,6 +23,14 @@ class GraphEdge:
     target: str
     type: str
     properties: dict[str, Any] = field(default_factory=dict)
+
+
+def _node_id(node: Any) -> str:
+    if hasattr(node, "id"):
+        return str(node.id)
+    if hasattr(node, "name"):
+        return str(node.name)
+    return str(node)
 
 
 class Neo4jSimulationDriver:
@@ -54,9 +70,7 @@ class Neo4jSimulationDriver:
         properties: dict[str, Any] | None = None,
     ) -> None:
         """MERGE a directed typed edge without creating duplicates."""
-        candidate = GraphEdge(
-            self._node_id(source), self._node_id(target), type, dict(properties or {})
-        )
+        candidate = GraphEdge(_node_id(source), _node_id(target), type, dict(properties or {}))
         key = self._edge_key(candidate)
         if key not in self._edge_keys:
             self._edge_keys.add(key)
@@ -65,27 +79,115 @@ class Neo4jSimulationDriver:
             if candidate.target != candidate.source:
                 self._adjacent.setdefault(candidate.target, []).append(candidate)
 
-    @staticmethod
-    def _node_id(node: Any) -> str:
-        if hasattr(node, "id"):
-            return str(node.id)
-        if hasattr(node, "name"):
-            return str(node.name)
-        return str(node)
+    # Kept for callers that used the old static helper
+    _node_id = staticmethod(_node_id)
 
     def get_neighbors(self, node_id: str) -> list[GraphEdge]:
         """Return one-hop incoming/outgoing edges as correctly typed objects."""
         return list(self._adjacent.get(node_id, []))
 
     def get_neighbor_triplets(self, node_id: str) -> list[str]:
-        """Compatibility formatter for legacy prompt rendering code."""
-        return [
-            f"{edge.source} -[:{edge.type}]-> {edge.target}"
-            for edge in self.get_neighbors(node_id)
-        ]
+        """``"<source> -[:TYPE]-> <target>"`` strings for prompt rendering."""
+        return [f"{edge.source} -[:{edge.type}]-> {edge.target}" for edge in self.get_neighbors(node_id)]
+
+    def get_node(self, node_id: str) -> Optional[dict[str, Any]]:
+        """Return node metadata dictionary if node exists, else None."""
+        return self.nodes.get(str(node_id))
+
+    def query(self, query_str: str, params: Optional[dict[str, Any]] = None) -> list[dict[str, Any]]:
+        """Raw Cypher is not supported by the simulation; returns no rows."""
+        return []
 
 
-neo4j = Neo4jSimulationDriver()
+class Neo4jRealDriver:
+    """Real Neo4j backend — needs NEO4J_URI (and NEO4J_USER / NEO4J_PASSWORD)
+    plus the official ``neo4j`` package. Same interface as the simulation."""
+
+    def __init__(self) -> None:
+        from neo4j import GraphDatabase
+
+        uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+        user = os.getenv("NEO4J_USER", "neo4j")
+        password = os.getenv("NEO4J_PASSWORD", "testpassword")
+        self._driver = GraphDatabase.driver(uri, auth=(user, password))
+
+    def merge_node(self, label: str, key: str, value: str, props: dict[str, Any]) -> None:
+        query = f"MERGE (n:`{label}` {{{key}: $value}}) SET n += $props"
+        with self._driver.session() as session:
+            session.run(query, value=value, props=props)
+
+    def merge_edge(
+        self,
+        source: Any,
+        target: Any,
+        type: str,
+        properties: dict[str, Any] | None = None,
+    ) -> None:
+        query = (
+            "MATCH (a {name: $source_id}), (b {name: $target_id}) "
+            f"MERGE (a)-[r:`{type}`]->(b) SET r += $props"
+        )
+        with self._driver.session() as session:
+            session.run(query, source_id=_node_id(source), target_id=_node_id(target), props=dict(properties or {}))
+
+    def get_neighbors(self, node_id: str) -> list[GraphEdge]:
+        query = (
+            "MATCH (a {name: $name})-[r]-(b) "
+            "RETURN startNode(r).name AS src, type(r) AS rel, endNode(r).name AS tgt, properties(r) AS props"
+        )
+        with self._driver.session() as session:
+            return [
+                GraphEdge(row["src"], row["tgt"], row["rel"], dict(row["props"] or {}))
+                for row in session.run(query, name=node_id)
+            ]
+
+    def get_neighbor_triplets(self, node_id: str) -> list[str]:
+        return [f"{edge.source} -[:{edge.type}]-> {edge.target}" for edge in self.get_neighbors(node_id)]
+
+    def get_node(self, node_id: str) -> Optional[dict[str, Any]]:
+        query = "MATCH (n {name: $name}) RETURN labels(n) AS labels, properties(n) AS props"
+        with self._driver.session() as session:
+            result = session.run(query, name=node_id).single()
+            if result:
+                return {
+                    "label": result["labels"][0] if result["labels"] else "Entity",
+                    "value": node_id,
+                    "properties": dict(result["props"] or {}),
+                }
+            return None
+
+    @property
+    def nodes(self) -> dict[str, Any]:
+        """Compatibility shim for code that iterates ``neo4j.nodes`` (e.g. entity mention matching).
+
+        Each access is a live round-trip; if that gets slow as the graph grows,
+        match candidates in Cypher (``WHERE a.name IN $candidates``) instead.
+        """
+        with self._driver.session() as session:
+            result = session.run("MATCH (n) RETURN n.name AS name")
+            return {row["name"]: {} for row in result if row["name"]}
+
+    def query(self, query_str: str, params: Optional[dict[str, Any]] = None) -> list[dict[str, Any]]:
+        with self._driver.session() as session:
+            return [dict(record) for record in session.run(query_str, params or {})]
+
+
+def _build_neo4j_driver() -> Neo4jSimulationDriver | Neo4jRealDriver:
+    """Real Neo4j when NEO4J_URI is set and reachable, otherwise the simulation."""
+    neo4j_uri = os.getenv("NEO4J_URI")
+    if neo4j_uri:
+        try:
+            driver = Neo4jRealDriver()
+            print(f"[GraphStore] Connected to real Neo4j at {neo4j_uri}")
+            return driver
+        except Exception as e:
+            print(f"[GraphStore] Warning: real Neo4j unavailable ({e}), falling back to simulation.")
+    return Neo4jSimulationDriver()
+
+
+# Global driver for the document/knowledge graph. The DAQ provenance graph
+# builds its own Neo4jSimulationDriver per analysis (see api/main.py).
+neo4j = _build_neo4j_driver()
 
 
 def write_entity(entity: Any) -> None:

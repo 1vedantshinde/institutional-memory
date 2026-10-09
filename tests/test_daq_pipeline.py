@@ -52,7 +52,9 @@ def test_pipeline_profiles_before_loading_and_hands_only_canonical_arrays(
         "quarantined": 1,
         "quarantined_by_reason": {"no_valid_header_numeric_match": 1},
     }
-    assert handoffs == [("4/Recording 1", [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]])]
+    assert len(handoffs) == 1
+    assert handoffs[0][0] == "4/Recording 1"
+    assert (handoffs[0][1] if isinstance(handoffs[0][1], list) else handoffs[0][1].tolist()) == [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]]
     assert run.windowing_outputs == [{"recording_id": "4/Recording 1", "rows": 1}]
 
 

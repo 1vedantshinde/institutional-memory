@@ -123,3 +123,26 @@ export const MOCK_TOOL_WEAR = {
   model_path: 'models/tool_wear/model.joblib',
   evaluated_at: '2026-09-28T10:00:00Z',
 }
+
+// Answer to a general question (no condition number), from the knowledge documents
+export const MOCK_CHAT_DOCUMENTS_ANSWER: ChatReadyResponse = {
+  answer:
+    'RMS summarises how strong a signal is overall across a window, like "average loudness" for a sound clip [Source 1]. ' +
+    'Kurtosis instead measures how spiky and rare the extreme moments are; it often rises around impacts [Source 1]. ' +
+    'Both are computed per 2,048-sample window before any explanation is written [Source 2].',
+  citations: [],
+  finding_count: 0,
+  route: 'documents',
+  sources: [
+    {
+      label: 'Source 1',
+      source_path: 'glossary.pdf',
+      snippet: 'RMS (root mean square) A single number that summarises how strong a signal is overall, averaged over a window… Kurtosis A measure of how "spiky and rare" the extreme moments in a signal are…',
+    },
+    {
+      label: 'Source 2',
+      source_path: 'finding_explainer.pdf',
+      snippet: 'Each sensor channel is sliced into windows of 2,048 consecutive readings, each overlapping the last by half.',
+    },
+  ],
+}

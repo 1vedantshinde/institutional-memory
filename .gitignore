@@ -19,17 +19,38 @@ ENV/
 # Local configuration and secrets
 .env
 .env.*
-!.env.example
+
+
 
 # Runtime DAQ artifacts: source data must be mounted or provided separately.
 data/
 datasets/
 dataset/
-quarantine/quarantine_log.jsonl
+emaildata/
+eval_mail/
+knowledge_docs/
+quarantine/
 artifacts/
+runtime/
 runtime/daq_cache/
+.daq_cache/
 
-# Local API uploads, except the committed test fixture
+# Raw and processed data formats
+*.csv
+*.tsv
+*.parquet
+*.h5
+*.hdf5
+*.eml
+*.msg
+*.mbox
+*.jsonl
+*.bin
+*.pt
+*.pth
+*.onnx
+
+# Local API uploads, except committed test fixture
 uploads/*
 !uploads/test_sop.pdf
 
@@ -43,5 +64,6 @@ Thumbs.db
 node_modules/
 frontend/dist/
 frontend/coverage/
+frontend/node_modules/
 
 

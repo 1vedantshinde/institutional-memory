@@ -128,14 +128,23 @@ def default_frequency_bands(fs: float) -> dict[str, tuple[float, float]]:
 def time_domain_features(x: Sequence[float]) -> dict[str, float]:
     """Extract rate-independent vibration/load/current diagnostics."""
     signal = _as_signal(x)
+    mean_val = float(np.mean(signal))
+    std_val = float(np.std(signal))
+    rms_val = float(np.sqrt(np.mean(signal**2)))
+    peak_val = float(np.max(np.abs(signal)))
+    crest_val = peak_val / (rms_val + 1e-12)
+    std_safe = std_val + 1e-12
+    diff_norm = (signal - mean_val) / std_safe
+    kurt_val = float(np.mean(diff_norm**4) - 3)
+    skew_val = float(np.mean(diff_norm**3))
     return {
-        "mean": float(np.mean(signal)),
-        "std": float(np.std(signal)),
-        "rms": rms(signal),
-        "peak": peak(signal),
-        "crest_factor": crest_factor(signal),
-        "kurtosis": kurtosis(signal),
-        "skewness": skewness(signal),
+        "mean": mean_val,
+        "std": std_val,
+        "rms": rms_val,
+        "peak": peak_val,
+        "crest_factor": crest_val,
+        "kurtosis": kurt_val,
+        "skewness": skew_val,
     }
 
 
@@ -161,6 +170,26 @@ def frequency_domain_features(
     }
 
 
+_FREQ_GRID_CACHE: dict[tuple[int, float], tuple[np.ndarray, list[tuple[str, np.ndarray]]]] = {}
+
+
+def _get_freq_grid(
+    n: int, sampling_rate: float, active_bands: Mapping[str, tuple[float, float]]
+) -> tuple[np.ndarray, list[tuple[str, np.ndarray]]]:
+    key = (n, sampling_rate)
+    cached = _FREQ_GRID_CACHE.get(key)
+    if cached is not None:
+        return cached
+    frequencies = np.fft.rfftfreq(n, d=1.0 / sampling_rate)
+    masks = []
+    for b_name in FREQUENCY_FEATURE_NAMES[:3]:
+        low, high = active_bands[b_name]
+        mask = (frequencies >= low) & (frequencies < high)
+        masks.append((b_name, mask))
+    _FREQ_GRID_CACHE[key] = (frequencies, masks)
+    return frequencies, masks
+
+
 def extract_window_features(
     window: SignalWindow,
     samples: Sequence[float],
@@ -174,11 +203,56 @@ def extract_window_features(
     enables the frequency-domain set and must represent the rate confirmed from
     the recording's actual Time-column deltas.
     """
-    features = time_domain_features(samples)
+    signal = _as_signal(samples)
+    mean_val = float(np.mean(signal))
+    diff = signal - mean_val
+    var_val = float(np.mean(diff**2))
+    std_val = math.sqrt(var_val)
+    rms_val = float(np.sqrt(np.mean(signal**2)))
+    peak_val = float(np.max(np.abs(signal)))
+    crest_val = peak_val / (rms_val + 1e-12)
+    std_safe = std_val + 1e-12
+    diff_norm = diff / std_safe
+    kurt_val = float(np.mean(diff_norm**4) - 3)
+    skew_val = float(np.mean(diff_norm**3))
+
+    features: dict[str, float] = {
+        "mean": mean_val,
+        "std": std_val,
+        "rms": rms_val,
+        "peak": peak_val,
+        "crest_factor": crest_val,
+        "kurtosis": kurt_val,
+        "skewness": skew_val,
+    }
     feature_names = list(TIME_FEATURE_NAMES)
     if fs is not None:
-        features.update(frequency_domain_features(samples, fs, bands=bands))
-        feature_names.extend(FREQUENCY_FEATURE_NAMES)
+        sampling_rate = _require_fs(fs)
+        active_bands = dict(bands) if bands is not None else default_frequency_bands(sampling_rate)
+        required_band_names = FREQUENCY_FEATURE_NAMES[:3]
+        missing = [name for name in required_band_names if name not in active_bands]
+        if missing:
+            raise FeatureInputError(f"missing_frequency_bands:{','.join(missing)}")
+        nyquist = sampling_rate / 2
+        for b_name in required_band_names:
+            low, high = active_bands[b_name]
+            if low < 0 or high <= low or high > np.nextafter(nyquist, math.inf):
+                raise FeatureInputError("invalid_frequency_band")
+
+        frequencies, band_masks = _get_freq_grid(len(signal), sampling_rate, active_bands)
+        fft_v = np.fft.rfft(signal)
+        spectrum_abs = np.abs(fft_v)
+        spectrum_sq = spectrum_abs**2
+
+        for b_name, mask in band_masks:
+            features[b_name] = float(np.sum(spectrum_sq[mask]))
+            feature_names.append(b_name)
+
+        sum_spec = float(np.sum(spectrum_abs))
+        sc_val = float(np.dot(frequencies, spectrum_abs) / (sum_spec + 1e-12))
+        features["spectral_centroid"] = sc_val
+        feature_names.append("spectral_centroid")
+
     vector = [features[name] for name in feature_names]
     window.feature_vector = vector
     return FeatureExtraction(

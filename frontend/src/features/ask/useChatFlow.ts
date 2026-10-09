@@ -18,7 +18,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { postChat } from '../../api/chat'
 import { getChatStatus } from '../../api/chat'
 import { ApiError, NetworkError, TimeoutError } from '../../api/client'
-import type { Citation, ChatAnalysingResponse } from '../../api/schemas'
+import type { Citation, ChatAnalysingResponse, DocumentSource } from '../../api/schemas'
 import { addMessage, updateMessage, addEvidence } from '../../store/sessionStore'
 import { parsePath } from '../../lib/parsePath'
 
@@ -191,10 +191,12 @@ export function useChatFlow(): UseChatFlowReturn {
       answer: string,
       findingCount: number,
       msgId: string,
+      sources: DocumentSource[] = [],
     ) => {
       updateMessage(msgId, {
         content: answer,
         citations,
+        sources,
         findingCount,
         isLoading: false,
       })
@@ -241,7 +243,7 @@ export function useChatFlow(): UseChatFlowReturn {
         .then((res) => {
           if (cancelledRef.current) return
           if (res.type === 'ready') {
-            finishWithAnswer(res.data.citations, res.data.answer, res.data.finding_count, msgId)
+            finishWithAnswer(res.data.citations, res.data.answer, res.data.finding_count, msgId, res.data.sources ?? [])
           } else {
             handlePending(res.data, msgId)
           }
@@ -318,7 +320,7 @@ export function useChatFlow(): UseChatFlowReturn {
         .then((res) => {
           if (cancelledRef.current) return
           if (res.type === 'ready') {
-            finishWithAnswer(res.data.citations, res.data.answer, res.data.finding_count, msgId)
+            finishWithAnswer(res.data.citations, res.data.answer, res.data.finding_count, msgId, res.data.sources ?? [])
           } else {
             handlePending(res.data, msgId)
           }

@@ -25,10 +25,23 @@ export type Citation = z.infer<typeof CitationSchema>
 
 // ─── Chat server ─────────────────────────────────────────────────────────────
 
+// A passage from a project knowledge document (glossary, fact sheet, policy
+// explainers). Answers to general questions cite these as [Source N].
+export const DocumentSourceSchema = z.object({
+  label: z.string(),
+  source_path: z.string(),
+  doc_id: z.string().optional(),
+  chunk_id: z.string().optional(),
+  snippet: z.string(),
+})
+export type DocumentSource = z.infer<typeof DocumentSourceSchema>
+
 export const ChatReadyResponseSchema = z.object({
   answer: z.string(),
   citations: z.array(CitationSchema),
   finding_count: z.number(),
+  sources: z.array(DocumentSourceSchema).optional(),
+  route: z.string().optional(),
 })
 export type ChatReadyResponse = z.infer<typeof ChatReadyResponseSchema>
 
