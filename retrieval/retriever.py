@@ -33,6 +33,23 @@ def semantic_vectors_enabled() -> bool:
 class BM25Index:
     """Okapi BM25 index calculation scanning the current vector store payloads."""
 
+    @property
+    def chunks(self) -> List[Chunk]:
+        from retrieval.vector_store import qdrant
+        points = qdrant.list_all_points()
+        out = []
+        for pt in points:
+            payload = pt.get("payload", {})
+            meta = {k: v for k, v in payload.items() if k not in ["text", "doc_id"]}
+            out.append(Chunk(
+                chunk_id=pt.get("id", ""),
+                doc_id=payload.get("doc_id", "Unknown"),
+                text=payload.get("text", ""),
+                embedding=pt.get("vector"),
+                metadata=meta
+            ))
+        return out
+
     def search(self, query: str, top_k: int = 8) -> List[Chunk]:
         from retrieval.vector_store import qdrant
         # Use list_all_points() so this works with both mock and real Qdrant

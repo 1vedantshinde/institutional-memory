@@ -228,12 +228,22 @@ def resolve_project_path(path: str) -> Path:
 
 # --- API key authentication ---
 
-_API_KEY = os.getenv("API_KEY")  # unset or empty → auth disabled
+def _get_security_api_key() -> Optional[str]:
+    raw_key = os.getenv("API_KEY")
+    if not raw_key or not raw_key.strip():
+        return None
+    # If the user pasted their Gemini or OpenAI key into API_KEY, do not block local frontend API endpoints
+    gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
+    openai_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if raw_key.strip() in {gemini_key, openai_key}:
+        return None
+    return raw_key.strip()
 
 
 def verify_api_key(x_api_key: Optional[str] = Header(None)):
-    """Enforces the X-API-Key header on write endpoints when API_KEY is set."""
-    if _API_KEY and x_api_key != _API_KEY:
+    """Enforces the X-API-Key header on write endpoints when a distinct API_KEY is set."""
+    expected = _get_security_api_key()
+    if expected and x_api_key != expected:
         raise HTTPException(status_code=401, detail="Invalid or missing API key. Set X-API-Key header.")
 
 

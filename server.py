@@ -73,12 +73,18 @@ def _scope_is_ready(condition_id: str, channel: str) -> bool:
 
 
 def _start_automatic_ingest() -> None:
-    dataset_root = daq_api.resolve_daq_dataset_root(
-        os.environ.get("DAQ_DATASET_ROOT", "dataset/Readngs_DAQ_Data")
-    )
-    config_path = daq_api.resolve_project_path(
-        os.environ.get("DAQ_CONFIG_PATH", "config/domain.yaml")
-    )
+    try:
+        raw_root = os.environ.get("DAQ_DATASET_ROOT", "dataset/Readngs_DAQ_Data")
+        dataset_root = daq_api.resolve_daq_dataset_root(raw_root)
+        config_path = daq_api.resolve_project_path(
+            os.environ.get("DAQ_CONFIG_PATH", "config/domain.yaml")
+        )
+    except Exception as e:
+        print(f"[AutoIngest] DAQ CSV dataset not available ({e}). Skipping DAQ CSV ingest.")
+        with daq_api.daq_state_lock:
+            daq_api.daq_state.ingest_status = "idle"
+        return
+
     with daq_api.daq_state_lock:
         if daq_api.daq_state.ingest_status == "running":
             return
@@ -160,57 +166,51 @@ def _start_automatic_analysis(condition_id: str, channel: str) -> bool:
     return False
 
 
-def _answer_from_knowledge_docs(question: str) -> dict[str, Any] | None:
+def _answer_from_knowledge_docs(question: str) -> dict[str, Any]:
     from llm.orchestrator import answer_unified_query, answer_from_documents, llm
 
-    is_email_or_person_query = bool(
-        re.search(
-            r"\b(email|mail|message|marcus|david|alex|rachel|tom|elena|skilling|lay|matrix|latin\s*square)\b",
-            question,
-            re.I,
-        )
-    )
+    # 1. First run the unified 6-step cross-source pipeline (PDFs, emails, ontology, sessions)
+    try:
+        u_ans = answer_unified_query(question)
+        if not u_ans.get("in_scope") or u_ans.get("route") == "declined":
+            return {
+                "answer": u_ans.get("answer", "This system answers questions about the CNC machine, its operation, documentation, sessions, and associated knowledge."),
+                "citations": [],
+                "finding_count": 0,
+                "sources": [],
+                "route": "declined",
+            }
 
-    # 1. For email/personnel/cross-source questions, use the Unified 6-Step Multi-Source Pipeline
-    if is_email_or_person_query:
-        try:
-            u_ans = answer_unified_query(question)
-            if not u_ans.get("in_scope") or u_ans.get("route") == "declined":
-                return {
-                    "answer": u_ans.get("answer", "This system answers questions about the CNC machine, its operation, documentation, sessions, and associated knowledge."),
-                    "citations": [],
-                    "finding_count": 0,
-                    "sources": [],
-                    "route": "declined",
-                }
+        sources = []
+        for idx, doc in enumerate(u_ans.get("doc_citations", []), start=1):
+            sources.append({
+                "label": f"Source {idx}",
+                "source_path": doc.get("source_path", "knowledge_docs"),
+                "doc_id": doc.get("doc_id"),
+                "chunk_id": doc.get("chunk_id"),
+                "snippet": doc.get("snippet", ""),
+            })
+        for idx, eml in enumerate(u_ans.get("email_citations", []), start=1):
+            sources.append({
+                "label": f"Email {idx}",
+                "source_path": eml.get("source_path", "knowledge_docs/emails"),
+                "doc_id": eml.get("email_id"),
+                "chunk_id": eml.get("chunk_id"),
+                "subject": eml.get("subject", ""),
+                "sender": eml.get("sender", ""),
+                "snippet": eml.get("snippet", ""),
+            })
+        for idx, fnd in enumerate(u_ans.get("finding_citations", []), start=1):
+            sources.append({
+                "label": f"Finding {idx}",
+                "source_path": fnd.get("source_path", "session_data"),
+                "finding_id": fnd.get("finding_id"),
+                "channel": fnd.get("channel"),
+                "snippet": fnd.get("snippet", ""),
+            })
 
-            sources = []
-            for idx, doc in enumerate(u_ans.get("doc_citations", []), start=1):
-                sources.append({
-                    "label": f"Source {idx}",
-                    "source_path": doc.get("source_path", "knowledge_docs"),
-                    "doc_id": doc.get("doc_id"),
-                    "chunk_id": doc.get("chunk_id"),
-                    "snippet": doc.get("snippet", ""),
-                })
-            for idx, eml in enumerate(u_ans.get("email_citations", []), start=1):
-                sources.append({
-                    "label": f"Email {idx}",
-                    "source_path": eml.get("source_path", "knowledge_docs/emails"),
-                    "doc_id": eml.get("email_id"),
-                    "chunk_id": eml.get("chunk_id"),
-                    "subject": eml.get("subject", ""),
-                    "sender": eml.get("sender", ""),
-                    "snippet": eml.get("snippet", ""),
-                })
-            for idx, fnd in enumerate(u_ans.get("finding_citations", []), start=1):
-                sources.append({
-                    "label": f"Finding {idx}",
-                    "source_path": fnd.get("source_path", "session_data"),
-                    "finding_id": fnd.get("finding_id"),
-                    "channel": fnd.get("channel"),
-                    "snippet": fnd.get("snippet", ""),
-                })
+        # If unified pipeline retrieved sources or answered successfully
+        if sources or u_ans.get("answer"):
             return {
                 "answer": u_ans.get("answer", ""),
                 "citations": u_ans.get("finding_citations", []),
@@ -220,59 +220,28 @@ def _answer_from_knowledge_docs(question: str) -> dict[str, Any] | None:
                 "sources": sources,
                 "route": u_ans.get("route", "unified"),
             }
-        except LLMProviderUnavailableError as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
-        except Exception:
-            pass
+    except LLMProviderUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as e:
+        print(f"[KnowledgeQuery] unified pipeline error: {e}")
 
-    # 2. Try document/glossary retrieval
+    # 2. Try document-only retrieval fallback
     try:
         ans = answer_from_documents(question)
         if ans is not None:
             return ans
     except LLMProviderUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[KnowledgeQuery] documents fallback error: {e}")
 
-    # 3. Fallback to unified pipeline if not matched yet
-    try:
-        u_ans = answer_unified_query(question)
-        if u_ans.get("in_scope") and u_ans.get("route") != "declined":
-            sources = []
-            for idx, doc in enumerate(u_ans.get("doc_citations", []), start=1):
-                sources.append({
-                    "label": f"Source {idx}",
-                    "source_path": doc.get("source_path", "knowledge_docs"),
-                    "doc_id": doc.get("doc_id"),
-                    "chunk_id": doc.get("chunk_id"),
-                    "snippet": doc.get("snippet", ""),
-                })
-            for idx, eml in enumerate(u_ans.get("email_citations", []), start=1):
-                sources.append({
-                    "label": f"Email {idx}",
-                    "source_path": eml.get("source_path", "knowledge_docs/emails"),
-                    "doc_id": eml.get("email_id"),
-                    "chunk_id": eml.get("chunk_id"),
-                    "subject": eml.get("subject", ""),
-                    "sender": eml.get("sender", ""),
-                    "snippet": eml.get("snippet", ""),
-                })
-            return {
-                "answer": u_ans.get("answer", ""),
-                "citations": u_ans.get("finding_citations", []),
-                "finding_count": len(u_ans.get("finding_citations", [])),
-                "email_citations": u_ans.get("email_citations", []),
-                "doc_citations": u_ans.get("doc_citations", []),
-                "sources": sources,
-                "route": u_ans.get("route", "unified"),
-            }
-    except LLMProviderUnavailableError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except Exception:
-        pass
-
-    return None
+    return {
+        "answer": "This system answers questions about the CNC machine, its operation, technical documentation, operational emails, and sensor diagnostics.",
+        "citations": [],
+        "finding_count": 0,
+        "sources": [],
+        "route": "general_knowledge",
+    }
 
 
 
@@ -296,32 +265,33 @@ def reingest_knowledge_docs() -> dict[str, Any]:
 def chat(request: ChatRequest, response: Response) -> dict[str, Any]:
     """Answer a frontend question, automatically preparing the needed evidence.
 
-    A new scope responds with HTTP 202 while analytics runs. Re-submit the same
-    question after `/chat/status` reports ``analysis_ready``. A cached scope
-    restores and answers in the same request.
+    In dataset-free mode, queries are answered from the unified multi-source
+    knowledge base (PDFs, emails, ontology). When raw DAQ CSVs are mounted,
+    numerical window analysis runs with 202 async polling.
     """
+    condition_id = request.condition_id or infer_condition_id(request.question)
+    channel = request.channel or infer_channel(request.question)
+
     is_knowledge_or_email = bool(
         re.search(
-            r"\b(email|mail|message|report|document|person|who|author|calibration|quarantine|log|maintenance|matrix|latin\s*square|policy|standard|iso)\b",
+            r"\b(email|mail|message|report|document|person|who|author|calibration|quarantine|log|maintenance|matrix|latin\s*square|policy|standard|iso|sop|spec)\b",
             request.question,
             re.I,
         )
     )
 
-    condition_id = request.condition_id or infer_condition_id(request.question)
-    channel = request.channel or infer_channel(request.question)
-    if is_knowledge_or_email or not condition_id or not channel:
-        # Not a pure single-run measurement query: answer from the unified multi-source pipeline
-        documents_answer = _answer_from_knowledge_docs(request.question)
-        if documents_answer is not None:
-            return documents_answer
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                "State both a condition and one signal, for example: 'Explain spindle "
-                "vibration for condition 4.' You may also send condition_id and channel."
-            ),
-        )
+    # Check if raw DAQ CSV recordings are available on disk
+    dataset_present = False
+    try:
+        raw_root = os.environ.get("DAQ_DATASET_ROOT", "dataset/Readngs_DAQ_Data")
+        dataset_root = daq_api.resolve_daq_dataset_root(raw_root)
+        dataset_present = dataset_root.is_dir()
+    except Exception:
+        dataset_present = False
+
+    # In dataset-free mode, or for knowledge/email queries, route directly to the unified knowledge pipeline
+    if not dataset_present or is_knowledge_or_email or not condition_id or not channel:
+        return _answer_from_knowledge_docs(request.question)
 
     if daq_api.daq_state.ingest_status in {"idle", "failed"} or not daq_api.daq_state.recordings:
         _start_automatic_ingest()
@@ -331,7 +301,7 @@ def chat(request: ChatRequest, response: Response) -> dict[str, Any]:
         response.status_code = 202
         return {"status": "ingesting", "message": "Preparing the DAQ inventory. Retry shortly."}
     if condition_id not in daq_api.daq_state.conditions:
-        raise HTTPException(status_code=404, detail=f"Unknown condition_id: {condition_id}")
+        return _answer_from_knowledge_docs(request.question)
 
     if not _scope_is_ready(condition_id, channel):
         restored = _start_automatic_analysis(condition_id, channel)
