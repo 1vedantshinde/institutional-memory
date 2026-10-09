@@ -278,46 +278,63 @@ Frontend-specific details: [frontend/README.md](frontend/README.md).
 ### What you need
 
 - **Python 3.10+**
-- **Node.js 22** (for the web app)
-- An API key for **Gemini** (default) or **OpenAI**
-- The DAQ dataset, placed at `dataset/Readngs_DAQ_Data/`, with one folder per
-  condition, each holding `Recording <N>.csv` files. The data is not in the
-  repository and is git-ignored.
+- **Node.js 18+ / 20+ / 22** (for the React web frontend)
+- An API key for **Gemini** (default: `GEMINI_API_KEY`) or **OpenAI** (`OPENAI_API_KEY`)
+- **Zero Cloud Services Needed**: Runs 100% locally with embedded in-memory Neo4j graph and local vector store.
+- **Zero Dataset Download Needed (Dataset-Free Mode)**: The Git repository tracks all 7 technical PDF manuals, 6 machine maintenance emails, the domain ontology, and pre-trained tool-wear ML models out of the box. (Raw multi-GB sensor CSVs are optional and only needed if re-computing raw DAQ signal windows from scratch).
 
-### One-time setup
+### Quickstart on Any New Machine (Git-Only Setup)
 
+#### 1. Clone the repository
 ```bash
-python3 -m pip install -r requirements.txt
-cp .env.example .env                  # then add your API key (see §6)
+git clone https://github.com/1vedantshinde/institutional-memory.git
+cd institutional-memory
+```
 
+#### 2. Setup Python environment & dependencies
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+```
+Open `.env` and enter your Gemini API key:
+```ini
+LLM_PROVIDER=gemini
+GEMINI_API_KEY=your_actual_gemini_api_key_here
+GEMINI_MODEL=gemini-3.8-flash
+```
+
+#### 3. Setup Frontend
+```bash
 cd frontend
 npm install
-cp .env.example .env.local            # then set VITE_CORE_API_URL (see below)
+cp .env.example .env.local
+cd ..
 ```
+*(Ensure `frontend/.env.local` points `VITE_CHAT_API_URL=http://localhost:8000` and `VITE_CORE_API_URL=http://localhost:8000`)*
 
-In `frontend/.env.local`, point **both** URLs at the one backend:
-
-```
-VITE_CHAT_API_URL=http://localhost:8000
-VITE_CORE_API_URL=http://localhost:8000
-```
-
-### Every time
-
-Terminal 1, at the repository root:
-
+#### 4. (Optional) Run One-Command Ingestion & Verification
 ```bash
+python3 all_ingest.py
+```
+This indexes the tracked PDF manuals, filters and loads the machine operational emails, and builds the in-memory knowledge graph.
+
+#### 5. Launch the System
+
+**Terminal 1 — Backend API & Knowledge Server:**
+```bash
+source .venv/bin/activate
 python3 -m uvicorn server:app --reload --port 8000
 ```
 
-Terminal 2:
-
+**Terminal 2 — React Web Dashboard:**
 ```bash
-cd frontend && npm run dev
+cd frontend
+npm run dev
 ```
 
-Open **http://localhost:5173** and ask something like *"Which windows look
-abnormal in the X load cell for condition 7?"*.
+Open **http://localhost:5173** in your browser. You can immediately ask questions about machine operations, technical manuals, spindle maintenance logs, calibration, and vibration alerts!
 
 **Why one backend?** `server.py` serves the chat endpoints *and* every core
 endpoint (`/ingest`, `/profile`, `/analyse`, `/query`, `/config`). Running
