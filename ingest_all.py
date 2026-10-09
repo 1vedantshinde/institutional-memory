@@ -83,8 +83,10 @@ def run_unified_ingest(
     recordings_count = 0
     canonical_count = 0
     try:
-        dataset_root = daq_api.resolve_daq_dataset_root("dataset/Readngs_DAQ_Data")
-        config_path = daq_api.resolve_project_path("config/domain.yaml")
+        import os
+        raw_root = os.environ.get("DAQ_DATASET_ROOT", "dataset/Readngs_DAQ_Data")
+        dataset_root = daq_api.resolve_daq_dataset_root(raw_root)
+        config_path = daq_api.resolve_project_path(os.environ.get("DAQ_CONFIG_PATH", "config/domain.yaml"))
         daq_api._run_daq_ingest(dataset_root, config_path, force=force)
         conditions_count = len(daq_api.daq_state.conditions)
         recordings_count = len(daq_api.daq_state.recordings)
