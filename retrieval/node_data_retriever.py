@@ -150,27 +150,28 @@ def retrieve_node_data(
             subject = props.get("subject", "")
             filename = clean_id.replace("email:", "")
             for c in bm25_index.chunks:
-                if (
-                    clean_id in str(c.doc_id)
-                    or filename in str(c.doc_id)
-                    or filename in str(c.metadata.get("source_path", ""))
-                    or clean_id in str(c.metadata.get("email_id", ""))
-                ):
-                    if all(c.chunk_id != ex.chunk_id for ex in chunks):
-                        chunks.append(c)
+                if c.metadata.get("modality") == "email":
+                    if (
+                        clean_id == str(c.doc_id)
+                        or filename == str(c.doc_id)
+                        or filename in str(c.metadata.get("source_path", ""))
+                        or clean_id == str(c.metadata.get("email_id", ""))
+                    ):
+                        if all(c.chunk_id != ex.chunk_id for ex in chunks):
+                            chunks.append(c)
 
             if not chunks:
                 search_term = f"{clean_id} {subject}".strip()
                 hits = bm25_index.search(search_term, top_k=top_k * 2)
                 for h in hits:
-                    if (
-                        clean_id in str(h.doc_id)
-                        or clean_id in str(h.metadata.get("source_path", ""))
-                        or clean_id in str(h.metadata.get("email_id", ""))
-                        or (h.metadata.get("modality") == "email" and (subject and subject.lower() in h.text.lower()))
-                    ):
-                        if all(h.chunk_id != ex.chunk_id for ex in chunks):
-                            chunks.append(h)
+                    if h.metadata.get("modality") == "email":
+                        if (
+                            clean_id == str(h.doc_id)
+                            or filename == str(h.doc_id)
+                            or (subject and subject.lower() in h.text.lower())
+                        ):
+                            if all(h.chunk_id != ex.chunk_id for ex in chunks):
+                                chunks.append(h)
         except Exception:
             pass
 
