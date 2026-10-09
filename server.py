@@ -350,7 +350,16 @@ def chat(request: ChatRequest, response: Response) -> dict[str, Any]:
 
     # In dataset-free mode, or for knowledge/email queries, route directly to the unified knowledge pipeline
     if not dataset_present or is_knowledge_or_email or not condition_id or not channel:
-        return _answer_from_knowledge_docs(request.question)
+        ans = _answer_from_knowledge_docs(request.question)
+        if ans is not None:
+            return ans
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "State both a condition and one signal, for example: 'Explain spindle "
+                "vibration for condition 4.' You may also send condition_id and channel."
+            ),
+        )
 
     if daq_api.daq_state.ingest_status in {"idle", "failed"} or not daq_api.daq_state.recordings:
         _start_automatic_ingest()
@@ -360,7 +369,16 @@ def chat(request: ChatRequest, response: Response) -> dict[str, Any]:
         response.status_code = 202
         return {"status": "ingesting", "message": "Preparing the DAQ inventory. Retry shortly."}
     if condition_id not in daq_api.daq_state.conditions:
-        return _answer_from_knowledge_docs(request.question)
+        ans = _answer_from_knowledge_docs(request.question)
+        if ans is not None:
+            return ans
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "State both a condition and one signal, for example: 'Explain spindle "
+                "vibration for condition 4.' You may also send condition_id and channel."
+            ),
+        )
 
     if not _scope_is_ready(condition_id, channel):
         restored = _start_automatic_analysis(condition_id, channel)
